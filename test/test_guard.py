@@ -73,6 +73,55 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertTrue(guard._should_research("Wer ist aktuell Präsident von Frankreich?")[0])
         self.assertTrue(guard._should_research("Welche Version von Python ist aktuell?")[0])
 
+    def test_model_gate_recognizes_local_providers_and_cloud_markers(self):
+        self.assertTrue(guard._is_local_or_small_model("qwen3:latest", "goliath"))
+        self.assertTrue(guard._is_local_or_small_model("llama-3", "vllm"))
+        self.assertFalse(guard._is_local_or_small_model("llama3:cloud", "ollama"))
+        self.assertFalse(guard._is_local_or_small_model("gpt-5.2", "openai"))
+        self.assertFalse(guard._should_skip_for_model_gate("gpt-5.2", "openai", True, "explicit"))
+
+    def test_cloud_research_trigger_escape_hatch(self):
+        old = os.environ.get("RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS")
+        os.environ["RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS"] = "true"
+        try:
+            self.assertFalse(guard._should_skip_for_model_gate("gpt-5.2", "openai", True, "current-facts"))
+        finally:
+            if old is None:
+                os.environ.pop("RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS", None)
+            else:
+                os.environ["RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS"] = old
+
+    def test_followup_subject_carryover_builds_search_query_from_history(self):
+        messages = [
+            {"role": "user", "content": "Wer ist Wal Timmy?"},
+            {"role": "assistant", "content": "Timmy war ein Buckelwal."},
+        ]
+        self.assertEqual(
+            guard._build_search_query("Was ist mit ihm danach passiert?", messages),
+            "Wal Timmy Was ist mit ihm danach passiert?",
+        )
+
+        location_messages = [{"role": "user", "content": "Wo liegt Forchheim?"}]
+        self.assertEqual(
+            guard._build_search_query("Wie viele Einwohner hat es?", location_messages),
+            "Forchheim Wie viele Einwohner hat es?",
+        )
+
+        office_messages = [{"role": "user", "content": "Wer ist Bürgermeister von Forchheim?"}]
+        self.assertEqual(
+            guard._build_search_query("Wann wurde sie gewählt?", office_messages),
+            "Forchheim Wann wurde sie gewählt?",
+        )
+
+    def test_followup_subject_carryover_supports_content_parts(self):
+        messages = [
+            {"role": "user", "content": [{"type": "text", "text": "Wer ist Martina Hebendanz?"}]},
+        ]
+        self.assertEqual(
+            guard._build_search_query("Was ist über sie aktuell bekannt?", messages),
+            "Martina Hebendanz Was ist über sie aktuell bekannt?",
+        )
+
     def test_source_followups_do_not_trigger_a_fresh_web_search(self):
         self.assertEqual(guard._should_research("Wo hast du die Info her?"), (False, "source-followup"))
         self.assertEqual(guard._should_research("Was waren deine Quellen?"), (False, "source-followup"))
@@ -267,6 +316,42 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
         self.assertEqual(quality["confidence"], "low")
         self.assertIn("requires multiple usable sources", " ".join(quality["warnings"]))
+
+    def test_provider_aware_cache_key_contains_provider_and_query_shape(self):
+        old_cache = os.environ.get("RESEARCH_GUARD_CACHE_TTL_SECONDS")
+        os.environ["RESEARCH_GUARD_CACHE_TTL_SECONDS"] = "3600"
+        original_load = guard._load_cache
+        original_save = guard._save_cache
+        original_duck = guard._duckduckgo_search
+        saved = {}
+        try:
+            guard._load_cache = lambda: {
+                "provider=duckduckgo-html:limit=3:deep=0:query=forchheim": {
+                    "ts": 9_999_999_999,
+                    "payload": {
+                        "success": True,
+                        "provider": "duckduckgo-html",
+                        "query": "Forchheim",
+                        "results": [{"title": "Cached", "url": "https://example.com", "snippet": "Cached result."}],
+                        "cached": False,
+                    },
+                }
+            }
+            guard._save_cache = lambda cache: saved.update(cache)
+            guard._duckduckgo_search = lambda query, limit: []
+            payload = guard._search("Forchheim", 3)
+        finally:
+            guard._load_cache = original_load
+            guard._save_cache = original_save
+            guard._duckduckgo_search = original_duck
+            if old_cache is None:
+                os.environ.pop("RESEARCH_GUARD_CACHE_TTL_SECONDS", None)
+            else:
+                os.environ["RESEARCH_GUARD_CACHE_TTL_SECONDS"] = old_cache
+
+        self.assertTrue(payload["cached"])
+        self.assertEqual(payload["provider"], "duckduckgo-html")
+        self.assertEqual(payload["cache_key"], "provider=duckduckgo-html:limit=3:deep=0:query=forchheim")
 
     def test_injected_context_includes_quality_and_location_discipline(self):
         quality = guard._score_research_results(

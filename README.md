@@ -7,7 +7,8 @@ It is meant for setups where models like Qwen, Llama, Mistral, Gemma, Phi, or Ol
 ## What it does
 
 - Registers a `pre_llm_call` hook.
-- Detects local/small models by model name heuristics.
+- Detects local/small models by model and provider heuristics, including local providers such as Ollama, LM Studio, vLLM, TGI, llama.cpp, MLX, and Goliath.
+- Skips explicit cloud markers such as Ollama `:cloud` unless manually forced or configured otherwise.
 - Detects factual, general-knowledge, and current-information questions.
 - Skips likely local, personal, coding, file, terminal, and writing tasks.
 - Skips local infrastructure prompts such as IP addresses, hosts, ports, SSH, ping, Tailscale, reachability, and service-status questions.
@@ -19,6 +20,7 @@ It is meant for setups where models like Qwen, Llama, Mistral, Gemma, Phi, or Ol
 - Tells the model to cite Research Guard sources when context was injected.
 - Keeps a small in-memory decision buffer so source follow-ups such as `Wo hast du die Info her?` can be answered from the previous Research Guard decision instead of triggering a fresh search for the follow-up itself.
 - Detects context/opinion follow-ups such as `Was hältst du davon?` and reuses the last Research Guard topic instead of searching the literal follow-up phrase.
+- Carries a prior subject from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative follow-up search queries such as `Was ist mit ihm danach passiert?`.
 - Exposes manual `research_guard_search` and `research_guard_status` tools for debugging/manual use.
 
 This keeps system prompts stable and preserves prompt-cache efficiency.
@@ -55,6 +57,7 @@ Optional environment variables:
 |---|---:|---|
 | `RESEARCH_GUARD_ENABLED` | `true` | Master on/off switch |
 | `RESEARCH_GUARD_ONLY_LOCAL` | `true` | Only trigger for local/small model names |
+| `RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS` | `false` | Allow automatic research for cloud models when a prompt would otherwise trigger research |
 | `RESEARCH_GUARD_LOCAL_PATTERNS` | built-in list | Comma-separated model-name patterns |
 | `RESEARCH_GUARD_MAX_RESULTS` | `5` | Search results to inject, clamped 1-10 |
 | `RESEARCH_GUARD_TIMEOUT` | `8` | DuckDuckGo fallback timeout in seconds |
@@ -67,8 +70,17 @@ Optional environment variables:
 Built-in local model patterns include:
 
 ```text
-qwen, ollama, llama, mistral, gemma, phi, deepseek, yi-, codellama, local, lmstudio, mlx, gguf
+qwen, ollama, llama, mistral, gemma, phi, deepseek, yi-, codellama, local,
+lmstudio, mlx, gguf, vllm, tgi, kimi-k2, minimax-m2
 ```
+
+Built-in local provider patterns include:
+
+```text
+ollama, lmstudio, lm-studio, mlx, llama.cpp, local, vllm, tgi, goliath
+```
+
+Cloud provider/model patterns such as `openai`, `anthropic`, `gemini`, `openrouter`, `perplexity`, `gpt-`, and `claude` are skipped by default. Manual `/research` still overrides the model gate.
 
 ## Source quality
 
@@ -147,6 +159,21 @@ are usually about the previous topic, not standalone search queries. Research Gu
 
 If the Hermes process was restarted or no previous Research Guard decision exists, the model is told to answer from visible conversation context only and not invent web sources.
 
+For factual follow-up questions that still require search, Research Guard can reuse a prior subject from Hermes history. If Hermes passes `conversation_history`, `messages`, or `history`, prompts such as:
+
+```text
+Wer ist Wal Timmy?
+Was ist mit ihm danach passiert?
+```
+
+build a search query like:
+
+```text
+Wal Timmy Was ist mit ihm danach passiert?
+```
+
+This is a deterministic v1 carryover. It is intentionally conservative and only activates for pronoun/demonstrative follow-ups such as `ihm`, `sie`, `es`, `dort`, `dazu`, `davon`, `darüber`, `danach`, `it`, `this`, or `that`.
+
 ## Privacy boundaries
 
 Research Guard should not send local/private operational questions to external web search. Prompts about internal machines, IP addresses, hostnames, SSH, ping, Tailscale, local reachability, service status, files, terminal commands, memory, notes, calendars, or personal context are deliberately skipped unless the user explicitly forces research.
@@ -165,6 +192,8 @@ Wie ist der Status der Verbindung zu Goliath?
 Research Guard first tries Hermes' built-in `tools.web_tools.web_search_tool`.
 
 If that is unavailable or misconfigured, it falls back to DuckDuckGo's HTML endpoint and parses compact result metadata.
+
+The query cache key includes provider, result count, a reserved deep-fetch flag, and normalized query text so fallback-provider results do not collide with Hermes-provider results.
 
 ## Development notes
 

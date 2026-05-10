@@ -27,8 +27,22 @@ DECISIONS: list[dict[str, Any]] = []
 CONFIDENCE_RANK = {"low": 1, "medium": 2, "high": 3}
 DEFAULT_LOCAL_MODEL_PATTERNS = (
     "qwen", "ollama", "llama", "mistral", "gemma", "phi", "deepseek",
-    "yi-", "codellama", "local", "lmstudio", "mlx", "gguf",
+    "yi-", "codellama", "local", "lmstudio", "mlx", "gguf", "vllm", "tgi",
+    "kimi-k2", "minimax-m2",
 )
+LOCAL_PROVIDER_PATTERNS = (
+    "ollama", "lmstudio", "lm-studio", "mlx", "llama.cpp", "local",
+    "vllm", "tgi", "goliath",
+)
+CLOUD_PROVIDER_PATTERNS = (
+    "openai", "openai-codex", "anthropic", "gemini", "google", "openrouter",
+    "perplexity", "moonshot", "kimi", "minimax", "synthetic", "zai",
+)
+CLOUD_MODEL_PATTERNS = (
+    "gpt-", "claude", "sonnet", "opus", "haiku", "gemini", "openrouter",
+    "anthropic", "openai", "moonshot", "perplexity",
+)
+EXPLICIT_CLOUD_MODEL_MARKERS = (":cloud",)
 
 RESEARCH_PREFIX_RE = re.compile(r"^\s*(?:#|/)research\b\s*", re.IGNORECASE)
 NO_RESEARCH_PREFIX_RE = re.compile(r"^\s*(?:#|/)no-research\b\s*", re.IGNORECASE)
@@ -114,15 +128,39 @@ def _env_list(name: str) -> list[str]:
     return [item for item in items if item]
 
 
-def _is_local_or_small_model(model: str | None) -> bool:
-    if not model:
+def _is_local_or_small_model(model: str | None, provider: str | None = None) -> bool:
+    provider_text = str(provider or "").lower()
+    bare_model = str(model or "").lower()
+    combined = f"{provider_text} {bare_model}".strip()
+    if not combined:
         return False
     if not _env_bool("RESEARCH_GUARD_ONLY_LOCAL", True):
         return True
     patterns = os.getenv("RESEARCH_GUARD_LOCAL_PATTERNS")
     needles = tuple(p.strip().lower() for p in patterns.split(",")) if patterns else DEFAULT_LOCAL_MODEL_PATTERNS
-    m = str(model).lower()
-    return any(p and p in m for p in needles)
+    if any(marker in bare_model for marker in EXPLICIT_CLOUD_MODEL_MARKERS):
+        return False
+    if any(pattern in provider_text for pattern in LOCAL_PROVIDER_PATTERNS):
+        return True
+    if any(pattern in provider_text for pattern in CLOUD_PROVIDER_PATTERNS):
+        return False
+    if any(p and p in combined for p in needles):
+        return True
+    if any(pattern in combined for pattern in CLOUD_MODEL_PATTERNS):
+        return False
+    return "/" not in bare_model and 0 < len(bare_model) < 24
+
+
+def _should_skip_for_model_gate(model: str | None, provider: str | None, should_research: bool, reason: str) -> bool:
+    if not _env_bool("RESEARCH_GUARD_ONLY_LOCAL", True):
+        return False
+    if _is_local_or_small_model(model, provider):
+        return False
+    if reason == "explicit":
+        return False
+    if _env_bool("RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS", False) and should_research:
+        return False
+    return True
 
 
 def _strip_speech_wrapper(text: str) -> str:
@@ -154,11 +192,95 @@ def _clean_message_for_research(message: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _build_search_query(message: str) -> str:
+def _build_search_query(message: str, messages: list[Any] | None = None) -> str:
     text = _clean_message_for_research(message)
     text = RESEARCH_PREFIX_RE.sub("", text)
     text = NO_RESEARCH_PREFIX_RE.sub("", text)
-    return re.sub(r"\s+", " ", text).strip()[:240]
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    subject = _extract_prior_subject(messages, cleaned)
+    return f"{subject} {cleaned}".strip()[:240] if subject else cleaned[:240]
+
+
+def _is_subject_followup(message: str) -> bool:
+    return bool(re.search(
+        r"\b(es|sie|er|ihn|ihm|dort|da|dazu|davon|darüber|darueber|hierzu|damit|danach|später|spaeter|"
+        r"it|there|this|that|about\s+(?:it|that|this))\b",
+        message,
+        flags=re.IGNORECASE,
+    ))
+
+
+def _message_text(message: Any) -> str:
+    if isinstance(message, str):
+        return message
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content") or message.get("text") or message.get("prompt") or ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and isinstance(part.get("text"), str):
+                parts.append(part["text"])
+        return " ".join(parts)
+    return ""
+
+
+def _message_role(message: Any) -> str | None:
+    if isinstance(message, dict) and isinstance(message.get("role"), str):
+        return message["role"].lower()
+    return None
+
+
+def _trim_subject(value: str) -> str | None:
+    subject = re.sub(r"[?!.:,;]+$", "", value)
+    subject = re.sub(r"\b(und|oder|and|or|mit|in|im|am|an|bei|hat|ist|liegt)\b[\s\S]*$", "", subject, flags=re.IGNORECASE)
+    subject = subject.strip()
+    return subject if len(subject) >= 3 else None
+
+
+def _extract_subject_from_text(text: str) -> str | None:
+    cleaned = re.sub(r"[#/](no-)?research\b", " ", text, flags=re.IGNORECASE)
+    patterns = [
+        r"\b(?:bürgermeister|oberbürgermeister|landrat|mayor)\s+(?:von|in|for)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})",
+        r"\b(?:wer\s+oder\s+was|who\s+or\s+what)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,4})\s+(?:ist|war|is|was)\b",
+        r"\b(?:wer|was|who|what)\s+(?:ist|war|is|was)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,4})",
+        r"\b(?:wo liegt|wo ist|wo befindet sich|where is)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, cleaned, flags=re.IGNORECASE)
+        if match:
+            subject = _trim_subject(match.group(1))
+            if subject:
+                return subject
+    match = re.search(r"\b([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})\b", cleaned)
+    return _trim_subject(match.group(1)) if match else None
+
+
+def _extract_prior_subject(messages: list[Any] | None, prompt: str) -> str | None:
+    if not messages or not _is_subject_followup(prompt):
+        return None
+    candidates = list(reversed(messages))
+    for message in candidates:
+        if _message_role(message) != "user":
+            continue
+        text = _message_text(message)
+        if not text or text.strip() == prompt.strip():
+            continue
+        subject = _extract_subject_from_text(text)
+        if subject:
+            return subject
+    for message in candidates:
+        text = _message_text(message)
+        if not text or text.strip() == prompt.strip():
+            continue
+        subject = _extract_subject_from_text(text)
+        if subject:
+            return subject
+    return None
 
 
 def _is_source_followup(message: str) -> bool:
@@ -706,13 +828,18 @@ def _duckduckgo_search(query: str, limit: int) -> list[dict[str, str]]:
 
 def _search(query: str, limit: int) -> dict[str, Any]:
     cache_ttl = _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400)
-    key = f"{limit}:{query.strip().lower()}"
     cache = _load_cache()
     now = time.time()
-    if cache_ttl and key in cache and now - float(cache[key].get("ts", 0)) < cache_ttl:
-        payload = dict(cache[key]["payload"])
-        payload["cached"] = True
-        return payload
+    def cache_key(provider: str) -> str:
+        return f"provider={provider}:limit={limit}:deep=0:query={query.strip().lower()}"
+
+    for provider in ("hermes-web", "duckduckgo-html"):
+        key = cache_key(provider)
+        if cache_ttl and key in cache and now - float(cache[key].get("ts", 0)) < cache_ttl:
+            payload = dict(cache[key]["payload"])
+            payload["cached"] = True
+            payload["cache_key"] = key
+            return payload
 
     errors: list[str] = []
     try:
@@ -727,7 +854,8 @@ def _search(query: str, limit: int) -> dict[str, Any]:
                     "url": item.get("url") or item.get("link") or "",
                     "snippet": item.get("description") or item.get("snippet") or "",
                 })
-            payload = {"success": True, "provider": "hermes-web", "query": query, "results": results, "cached": False}
+            key = cache_key("hermes-web")
+            payload = {"success": True, "provider": "hermes-web", "query": query, "results": results, "cached": False, "cache_key": key}
             cache[key] = {"ts": now, "payload": payload}
             _save_cache(cache)
             return payload
@@ -738,7 +866,8 @@ def _search(query: str, limit: int) -> dict[str, Any]:
 
     try:
         results = _duckduckgo_search(query, limit)
-        payload = {"success": bool(results), "provider": "duckduckgo-html", "query": query, "results": results, "cached": False}
+        key = cache_key("duckduckgo-html")
+        payload = {"success": bool(results), "provider": "duckduckgo-html", "query": query, "results": results, "cached": False, "cache_key": key}
         if not results:
             payload["error"] = "No search results parsed"
         if errors:
@@ -802,6 +931,22 @@ def _format_context(payload: dict[str, Any], reason: str, model: str | None, qua
     return "\n".join(lines)
 
 
+def _conversation_history_from_kwargs(kwargs: dict[str, Any]) -> list[Any] | None:
+    for key in ("conversation_history", "messages", "history"):
+        value = kwargs.get(key)
+        if isinstance(value, list):
+            return value
+    return None
+
+
+def _provider_from_context(platform: str | None, kwargs: dict[str, Any]) -> str | None:
+    for key in ("provider", "provider_id", "providerId", "model_provider"):
+        value = kwargs.get(key)
+        if value:
+            return str(value)
+    return platform
+
+
 def research_guard_search(args: dict, **kwargs) -> str:
     """Manual tool: run the same research search used by the hook."""
     del kwargs
@@ -849,14 +994,16 @@ def research_guard_status(args: dict, **kwargs) -> str:
 
 
 def pre_llm_research_guard(session_id: str, user_message: str, model: str, platform: str, **kwargs):
-    del session_id, platform, kwargs
+    del session_id
+    provider = _provider_from_context(platform, kwargs)
+    messages = _conversation_history_from_kwargs(kwargs)
     if not _env_bool("RESEARCH_GUARD_ENABLED", True):
         _record_decision("skipped", "plugin disabled", model=model)
         return None
-    if not _is_local_or_small_model(model):
-        _record_decision("skipped", "non-local model gate", model=model)
-        return None
     should, reason = _should_research(user_message)
+    if _should_skip_for_model_gate(model, provider, should, reason):
+        _record_decision("skipped", "non-local model gate", model=model, provider=provider, prompt=_clean_message_for_research(user_message)[:180])
+        return None
     if reason == "source-followup":
         return {"context": _format_source_followup_context()}
     if reason == "context-followup":
@@ -864,7 +1011,7 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
     if not should:
         _record_decision("skipped", reason, model=model, prompt=_clean_message_for_research(user_message)[:180])
         return None
-    query = _build_search_query(user_message)
+    query = _build_search_query(user_message, messages)
     if not query:
         _record_decision("skipped", "empty query after cleanup", model=model)
         return None

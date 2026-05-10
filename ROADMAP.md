@@ -31,13 +31,13 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Manual `#research` / `/research` force prefix | `[x]` | Present and consistent. |
 | Manual `#no-research` / `/no-research` skip prefix | `[x]` | Present and consistent. |
 | Basic local model detection | `[x]` | Present, but OpenClaw has stronger provider-aware logic. |
-| Provider-aware local/cloud model gate | `[ ] PORT` | Add local provider patterns, cloud provider patterns, explicit `:cloud` handling, and `allowCloudResearchTriggers`. |
+| Provider-aware local/cloud model gate | `[x]` | v0.4.0 adds local/cloud provider patterns, explicit `:cloud` handling, and `RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS`. |
 | Brave Search provider | `[ ] PORT` | Add direct Brave API via `BRAVE_API_KEY`. |
 | OpenClaw web-search registry integration | `[ ] ADAPT` | Replace with Hermes tool dispatch or built-in `tools.web_tools` / `web_search` path. |
 | DuckDuckGo HTML fallback | `[x]` | Present; keep as final fallback. |
 | Provider fallback chain | `[ ] ADAPT` | Preferred Hermes order: optional `web_search_plus`, direct Brave, Hermes built-in web search, DuckDuckGo/SearXNG. |
 | Query cache with TTL | `[x]` | Present, file-backed. Needs provider-aware keys and cache cleanup. |
-| Provider-aware cache keys | `[ ] PORT` | OpenClaw does this better; add provider, result count, deep-fetch flags. |
+| Provider-aware cache keys | `[x]` | v0.4.0 cache keys include provider, result count, reserved deep-fetch flag, and normalized query text. |
 | Trigger heuristics for factual/current questions | `[x]` | Present in simpler form. Port the expanded German/English rules. |
 | Skip rules for code/files/terminal/memory/personal tasks | `[x]` | Present in simpler form. Port the expanded OpenClaw skip list. |
 | Local infrastructure skip rules | `[x]` | Skips IP, host, SSH, Tailscale, ping, local reachability, and service-status prompts. |
@@ -45,7 +45,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | OpenClaw metadata cleanup | `[ ] LIMIT` | OpenClaw-specific metadata is not relevant unless Hermes gains equivalent wrappers. |
 | Follow-up source/status handling | `[x]` | Source provenance follow-ups use the in-memory Research Guard decision buffer instead of literal follow-up searches. |
 | Context/opinion follow-up guard | `[x]` | Short prompts such as "Was hältst du davon?" reuse the last Research Guard topic instead of searching the literal phrase. |
-| Follow-up subject carryover | `[ ] PORT` | Full prior-subject extraction from Hermes `conversation_history` is still pending for broader pronoun/demonstrative rewrites. |
+| Follow-up subject carryover | `[x]` | v0.4.0 carries prior subjects from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative search queries. |
 | Structured deep fetch | `[ ] PORT` | Fetch top-page excerpts for detail-heavy prompts such as tracklists, tables, release notes, prices, and population facts. |
 | Source quality scoring | `[x]` | v0.3.0 ports official/docs/government/municipal/vendor/project/reference scoring. |
 | Confidence gating | `[x]` | v0.3.0 adds `RESEARCH_GUARD_MIN_CONFIDENCE`, usable counts, and multiple-source downgrade support. |
@@ -72,17 +72,17 @@ Goal: make Hermes Research Guard search through the best available provider path
 - [ ] PORT Keep DuckDuckGo HTML as final fallback.
 - [ ] PORT Normalize all provider results into `{title, url, snippet, age}`.
 - [ ] PORT Surface provider name, fallback path, and errors in debug/status output.
-- [ ] PORT Make cache keys provider-aware.
-- [ ] PORT Include search count, deep-fetch state, and provider in cache keys.
+- [x] Make cache keys provider-aware.
+- [x] Include search count, deep-fetch state, and provider in cache keys.
 
 ## v0.3 - Model Gate And Trigger Parity
 
 Goal: reduce over-searching while making factual-risk prompts more reliable for local models.
 
-- [ ] PORT Port OpenClaw local provider patterns: `ollama`, `lmstudio`, `lm-studio`, `mlx`, `llama.cpp`, `local`, `vllm`, `tgi`, `goliath`.
-- [ ] PORT Port cloud provider patterns: `openai`, `anthropic`, `gemini`, `google`, `openrouter`, `perplexity`, `moonshot`, `kimi`, `minimax`, `synthetic`, `zai`.
-- [ ] PORT Treat explicit cloud markers such as Ollama `:cloud` as non-local.
-- [ ] PORT Add `RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS=true|false`.
+- [x] Port OpenClaw local provider patterns: `ollama`, `lmstudio`, `lm-studio`, `mlx`, `llama.cpp`, `local`, `vllm`, `tgi`, `goliath`.
+- [x] Port cloud provider patterns: `openai`, `anthropic`, `gemini`, `google`, `openrouter`, `perplexity`, `moonshot`, `kimi`, `minimax`, `synthetic`, `zai`.
+- [x] Treat explicit cloud markers such as Ollama `:cloud` as non-local.
+- [x] Add `RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS=true|false`.
 - [ ] PORT Add mode setting: `RESEARCH_GUARD_MODE=conservative|balanced|aggressive`.
 - [ ] PORT Expand factual/current trigger patterns for German and English prompts.
 - [ ] PORT Add explicit triggers for population, mayors, presidents, releases, prices, versions, changelogs, and comparisons.
@@ -109,9 +109,9 @@ Goal: turn conversational prompts into search-friendly queries without losing us
 - [x] Strip stale `[Research Guard: ...]` blocks before search.
 - [x] Skip source-provenance follow-ups such as "Wo hast du die Info her?" and answer from the last Research Guard decision.
 - [x] Skip context/opinion follow-ups such as "Was hältst du davon?" and inject the last Research Guard topic instead of searching the literal phrase.
-- [ ] PORT Carry prior subject into follow-up queries when prompts use pronouns or demonstratives.
-- [ ] PORT Add subject extraction for identity, location, and named-entity questions.
-- [ ] ADAPT Use Hermes `conversation_history` for follow-up subject extraction.
+- [x] Carry prior subject into follow-up queries when prompts use pronouns or demonstratives.
+- [x] Add subject extraction for identity, location, and named-entity questions.
+- [x] Use Hermes `conversation_history`, `messages`, or `history` for follow-up subject extraction.
 - [ ] PORT Add deterministic rewrite templates for latest/current/release/version/price prompts.
 - [ ] PORT Add official-source hints for docs, changelogs, pricing pages, government/statistics pages, and municipal facts.
 - [ ] PORT Expose original prompt, cleaned prompt, carried subject, and final query in debug/status output.
@@ -184,7 +184,7 @@ Goal: keep the hook fast and predictable.
 - [x] Basic file-backed query cache with TTL.
 - [ ] PORT Add maximum cache size.
 - [ ] PORT Add cleanup/eviction of old entries.
-- [ ] PORT Keep provider-aware cache keys.
+- [x] Keep provider-aware cache keys.
 - [ ] PORT Expose cache entries, TTL, hits, and misses through status/debug output.
 - [ ] ADAPT Consider shorter TTL for current/news prompts and longer TTL for stable factual prompts.
 - [ ] PORT Bound all provider and deep-fetch calls with explicit timeouts.
@@ -207,12 +207,12 @@ Goal: make source ranking sensitive to topic risk.
 Goal: make future changes safe.
 
 - [ ] PORT Translate OpenClaw heuristic tests into Python tests.
-- [ ] PORT Add tests for model detection, cloud markers, manual force/skip, and cloud-trigger escape hatch.
+- [x] Add tests for model detection, cloud markers, manual force/skip, and cloud-trigger escape hatch.
 - [x] Add tests for local infrastructure skip rules.
 - [x] Add tests for speech-wrapper cleanup.
 - [x] Add tests for source-provenance follow-ups.
 - [x] Add tests for context/opinion follow-ups.
-- [ ] PORT Add tests for follow-up subject carryover.
+- [x] Add tests for follow-up subject carryover.
 - [x] Add tests for source scoring and confidence gates.
 - [x] Add tests for duplicate/same-domain dampening.
 - [ ] PORT Add fuller tests for freshness/staleness scoring.
