@@ -55,7 +55,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.6.2
+version: 0.6.3
 ```
 
 Enable it:

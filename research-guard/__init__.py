@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.6.2"
+__version__ = "0.6.3"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -51,7 +51,7 @@ NO_RESEARCH_PREFIX_RE = re.compile(r"^\s*(?:#|/)no-research\b\s*", re.IGNORECASE
 SLASH_COMMAND_RE = re.compile(r"^\s*/(?!research\b|no-research\b)\S+", re.IGNORECASE)
 SOURCE_FOLLOWUP_RE = re.compile(
     r"\b(woher|wo hast du|wo habt ihr|quelle|quellen|beleg|belege|"
-    r"info her|information her|zustande|recherchiert|gesucht|research[-_\s]*guard|"
+    r"info her|information her|zustande|recherchiert|gesucht|"
     r"source|sources|where.*source|how.*answer)\b",
     re.IGNORECASE,
 )
@@ -321,6 +321,8 @@ def _query_debug(message: str, messages: list[Any] | None = None) -> dict[str, A
 def _is_source_followup(message: str) -> bool:
     text = _clean_message_for_research(message)
     if not text:
+        return False
+    if _is_status_request(text):
         return False
     return bool(SOURCE_FOLLOWUP_RE.search(text))
 

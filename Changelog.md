@@ -1,3 +1,11 @@
+## 2026-05-10 - Status-Intent gegen Quellenpfad abgeschirmt
+- **Typ:** fix
+- **Auslöser:** Chat — `Zeige research guard status` wurde weiterhin wie eine Quellenfrage zur letzten Antwort beantwortet.
+- **Ursache:** Der Quellen-Follow-up-Matcher akzeptierte `research guard` auch ohne Quellen-/Herkunftsfrage. Damit konnte eine Statusfrage im falschen Kontext landen, insbesondere wenn Hermes keinen Tool-Call ausführt.
+- **Änderung:** `research guard` allein zählt nicht mehr als Quellen-Follow-up. `_is_source_followup` blockt Status-/Diagnose-Requests zusätzlich explizit ab.
+- **Version:** Plugin-Version auf `0.6.3` erhöht.
+- **Tests:** Exakter Repro-Fall `Zeige research guard status` ergänzt.
+
 ## 2026-05-10 - Status-Anfragen robuster erkannt
 - **Typ:** fix
 - **Auslöser:** Chat — Hermes beantwortete `Zeig mir den Research Guard status` wie eine Quellen-Nachfrage zur vorherigen Antwort, statt den Diagnose-Status auszugeben.

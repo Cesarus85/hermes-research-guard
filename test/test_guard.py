@@ -130,8 +130,10 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
     def test_research_guard_status_requests_do_not_become_source_followups(self):
         self.assertEqual(guard._should_research("Zeig mir den Research Guard Status"), (False, "status-request"))
+        self.assertEqual(guard._should_research("Zeige research guard status"), (False, "status-request"))
         self.assertEqual(guard._should_research("research_guard_status"), (False, "status-request"))
         self.assertEqual(guard._should_research("Diagnose vom research guard bitte"), (False, "status-request"))
+        self.assertFalse(guard._is_source_followup("Zeige research guard status"))
 
     def test_context_followups_do_not_trigger_literal_web_search(self):
         self.assertEqual(guard._should_research("Was hältst du davon?"), (False, "context-followup"))
