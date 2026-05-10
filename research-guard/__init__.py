@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -927,6 +928,33 @@ def _should_deep_fetch(prompt: str) -> tuple[bool, str]:
     return False, "no deep fetch trigger"
 
 
+def _deep_fetch_profile(enabled: bool) -> str:
+    if not enabled:
+        return "off"
+    return (
+        f"pages={_env_int('RESEARCH_GUARD_DEEP_FETCH_MAX_PAGES', 2, 1, 3)},"
+        f"chars={_env_int('RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS', 3500, 800, 8000)}"
+    )
+
+
+def _extract_structured_tracklist(text: str) -> list[dict[str, Any]]:
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    items: list[dict[str, Any]] = []
+    for line in lines:
+        match = re.match(r"^(?:\#?\s*)?(\d{1,2})[\).:-]\s+(.{2,120})$", line)
+        if not match:
+            match = re.match(r"^(\d{1,2})\s+(.{2,120})$", line)
+        if not match:
+            continue
+        title = re.sub(r"\s+\d{1,2}:\d{2}(?:\s|$).*", "", match.group(2)).strip(" -–—")
+        if title:
+            items.append({"number": int(match.group(1)), "title": title})
+    if len(items) < 3:
+        compact = re.findall(r"(?:^|\s)(\d{1,2})[\).]\s*([^0-9]{2,80}?)(?=\s+\d{1,2}[\).]\s*|$)", text or "")
+        items = [{"number": int(number), "title": title.strip(" -–—")} for number, title in compact if title.strip()]
+    return items[:40]
+
+
 def _fetch_readable_page(title: str, url: str, max_chars: int) -> dict[str, str] | None:
     try:
         parsed = urlparse(url)
@@ -948,24 +976,39 @@ def _fetch_readable_page(title: str, url: str, max_chars: int) -> dict[str, str]
         text = text[:max(500, max_chars)].strip()
         if not text:
             return None
-        return {
+        source: dict[str, Any] = {
             "title": _extract_html_title(raw) or title or parsed.netloc,
             "url": url,
             "text": text,
         }
+        tracklist = _extract_structured_tracklist(text)
+        if tracklist:
+            source["structured_tracklist"] = tracklist
+        return source
     except Exception:
         logger.debug("Could not deep-fetch source: %s", url, exc_info=True)
         return None
 
 
-def _fetch_top_sources(results: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _fetch_top_sources(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     max_pages = _env_int("RESEARCH_GUARD_DEEP_FETCH_MAX_PAGES", 2, 1, 3)
     max_chars = _env_int("RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS", 3500, 800, 8000)
-    fetched: list[dict[str, str]] = []
-    for item in results[:max_pages]:
-        source = _fetch_readable_page(str(item.get("title") or ""), str(item.get("url") or ""), max_chars)
-        if source:
-            fetched.append(source)
+    candidates = list(enumerate(results[:max_pages]))
+    fetched_by_index: dict[int, dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=max_pages) as executor:
+        future_to_index = {
+            executor.submit(_fetch_readable_page, str(item.get("title") or ""), str(item.get("url") or ""), max_chars): idx
+            for idx, item in candidates
+        }
+        for future in as_completed(future_to_index):
+            idx = future_to_index[future]
+            try:
+                source = future.result()
+            except Exception:
+                source = None
+            if source:
+                fetched_by_index[idx] = source
+    fetched = [fetched_by_index[idx] for idx, _item in candidates if idx in fetched_by_index]
     return fetched
 
 
@@ -994,12 +1037,12 @@ def _duckduckgo_search(query: str, limit: int) -> list[dict[str, str]]:
     return results
 
 
-def _search(query: str, limit: int) -> dict[str, Any]:
+def _search(query: str, limit: int, deep_profile: str = "off") -> dict[str, Any]:
     cache_ttl = _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400)
     cache = _load_cache()
     now = time.time()
     def cache_key(provider: str) -> str:
-        return f"provider={provider}:limit={limit}:deep=0:query={query.strip().lower()}"
+        return f"provider={provider}:limit={limit}:deep={deep_profile}:query={query.strip().lower()}"
 
     for provider in ("hermes-web", "duckduckgo-html"):
         key = cache_key(provider)
@@ -1053,7 +1096,7 @@ def _format_context(
     model: str | None,
     quality: dict[str, Any] | None = None,
     current_prompt: str | None = None,
-    fetched_sources: list[dict[str, str]] | None = None,
+    fetched_sources: list[dict[str, Any]] | None = None,
 ) -> str:
     if not payload.get("success"):
         return ""
@@ -1109,6 +1152,11 @@ def _format_context(
         for idx, source in enumerate(fetched_sources, 1):
             lines.append(f"{idx}. {source.get('title') or 'Untitled'}")
             lines.append(f"   URL: {source.get('url') or ''}")
+            tracklist = source.get("structured_tracklist") or []
+            if tracklist:
+                lines.append("   Strukturierte Tracklist-Kandidaten:")
+                for item in tracklist:
+                    lines.append(f"   {item.get('number')}. {item.get('title')}")
             lines.append(f"   Inhalt: {source.get('text') or ''}")
         lines.append("[/Research Guard: Vertiefte Quellen-Auszüge]")
     return "\n".join(lines)
@@ -1182,9 +1230,9 @@ def research_guard_search(args: dict, **kwargs) -> str:
     limit = int(args.get("limit") or _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10))
     if not query:
         return json.dumps({"error": "query is required"}, ensure_ascii=False)
-    payload = _search(query, max(1, min(limit, 10)))
-    quality = _score_research_results(payload.get("results") or [], str(payload.get("query") or query)) if payload.get("success") else None
     deep_fetch_enabled = bool(args.get("deep_fetch") or args.get("deepFetch"))
+    payload = _search(query, max(1, min(limit, 10)), _deep_fetch_profile(deep_fetch_enabled))
+    quality = _score_research_results(payload.get("results") or [], str(payload.get("query") or query)) if payload.get("success") else None
     fetched_sources = _fetch_top_sources(quality.get("results") if quality and deep_fetch_enabled else []) if deep_fetch_enabled else []
     if quality:
         payload = {**payload, "results": quality["results"], "quality": quality}
@@ -1280,10 +1328,10 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
     if not query:
         _record_decision("skipped", "empty query after cleanup", model=model, provider=provider, query_debug=query_debug)
         return None
-    limit = _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10)
-    payload = _search(query, limit)
-    quality = _score_research_results(payload.get("results") or [], str(payload.get("query") or query)) if payload.get("success") else None
     deep_fetch, deep_fetch_reason = _should_deep_fetch(_clean_message_for_research(user_message))
+    limit = _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10)
+    payload = _search(query, limit, _deep_fetch_profile(deep_fetch))
+    quality = _score_research_results(payload.get("results") or [], str(payload.get("query") or query)) if payload.get("success") else None
     fetched_sources = _fetch_top_sources(quality.get("results") if quality and deep_fetch else []) if deep_fetch else []
     min_confidence = _parse_confidence(os.getenv("RESEARCH_GUARD_MIN_CONFIDENCE"), "low")
     if quality and not _meets_min_confidence(str(quality.get("confidence") or "low"), min_confidence):

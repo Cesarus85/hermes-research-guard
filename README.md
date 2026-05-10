@@ -54,7 +54,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.6.0
+version: 0.6.1
 ```
 
 Enable it:
@@ -136,7 +136,9 @@ For location questions such as `Wo liegt Forchheim?`, the context now explicitly
 
 For structured prompts such as tracklists, song lists, tables, release notes, prices, benchmarks, and population facts, Research Guard fetches readable excerpts from the top scored sources and injects them under `[Research Guard: Vertiefte Quellen-Auszüge]`.
 
-Tracklist prompts have an extra rule: the model must not synthesize a list from search snippets, streaming catalog mixes, or anniversary/bonus editions. It should use only a clearly source-backed standard/original tracklist from the fetched excerpts, or say that the sources are insufficient.
+Deep fetch now runs the top-page fetches in parallel, records fetched-source counts in diagnostics, and includes the deep-fetch profile in cache keys so snippet-only and fetched-source runs do not collide.
+
+Tracklist prompts have an extra rule: the model must not synthesize a list from search snippets, streaming catalog mixes, or anniversary/bonus editions. It should use only a clearly source-backed standard/original tracklist from the fetched excerpts, or say that the sources are insufficient. Research Guard also extracts simple numbered tracklist candidates from fetched pages and surfaces them separately in the context.
 
 ## Manual opt-in / opt-out
 

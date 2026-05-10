@@ -46,7 +46,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Follow-up source/status handling | `[x]` | Source provenance follow-ups use the in-memory Research Guard decision buffer instead of literal follow-up searches. |
 | Context/opinion follow-up guard | `[x]` | Short prompts such as "Was hältst du davon?" reuse the last Research Guard topic instead of searching the literal phrase. |
 | Follow-up subject carryover | `[x]` | v0.4.0 carries prior subjects from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative search queries. |
-| Structured deep fetch | `[x]` | v0.6.0 fetches readable top-source excerpts for detail-heavy prompts such as tracklists, tables, release notes, prices, and population facts. |
+| Structured deep fetch | `[x]` | v0.6.1 fetches readable top-source excerpts in parallel and extracts simple structured tracklist candidates. |
 | Source quality scoring | `[x]` | v0.3.0 ports official/docs/government/municipal/vendor/project/reference scoring. |
 | Confidence gating | `[x]` | v0.3.0 adds `RESEARCH_GUARD_MIN_CONFIDENCE`, usable counts, and multiple-source downgrade support. |
 | Preferred domains | `[x]` | `RESEARCH_GUARD_PREFERRED_DOMAINS` boosts trusted domains. |
@@ -144,9 +144,10 @@ Goal: give local models enough detail for prompts where snippets are not enough.
 - [x] Add `RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS`, clamped 800-8000.
 - [x] Add `RESEARCH_GUARD_DEEP_FETCH_TIMEOUT_SECONDS`.
 - [x] Trigger deep fetch for tracklists, complete lists, tables, release notes, versions, prices, benchmarks, population, and detailed factual prompts.
-- [ ] PORT Fetch top pages in parallel with per-page timeout.
+- [x] Fetch top pages in parallel with per-page timeout.
 - [x] Extract readable text from HTML and plain text responses.
 - [x] Keep fetched excerpts only for sources that passed quality scoring.
+- [x] Extract simple numbered tracklist candidates from fetched sources.
 
 ## v0.8 - Answer Discipline For Hermes Context Injection
 

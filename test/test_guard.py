@@ -385,7 +385,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         saved = {}
         try:
             guard._load_cache = lambda: {
-                "provider=duckduckgo-html:limit=3:deep=0:query=forchheim": {
+                "provider=duckduckgo-html:limit=3:deep=off:query=forchheim": {
                     "ts": 9_999_999_999,
                     "payload": {
                         "success": True,
@@ -410,7 +410,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
         self.assertTrue(payload["cached"])
         self.assertEqual(payload["provider"], "duckduckgo-html")
-        self.assertEqual(payload["cache_key"], "provider=duckduckgo-html:limit=3:deep=0:query=forchheim")
+        self.assertEqual(payload["cache_key"], "provider=duckduckgo-html:limit=3:deep=off:query=forchheim")
 
     def test_injected_context_includes_quality_and_location_discipline(self):
         quality = guard._score_research_results(
@@ -476,6 +476,31 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Tracklist-Pflicht", context)
         self.assertIn("Vertiefte Quellen-Auszüge", context)
         self.assertIn("Original track listing", context)
+
+    def test_deep_fetch_profile_changes_cache_key_shape(self):
+        profile = guard._deep_fetch_profile(True)
+        self.assertIn("pages=", profile)
+        self.assertIn("chars=", profile)
+
+    def test_structured_tracklist_extraction_and_context_output(self):
+        tracklist = guard._extract_structured_tracklist(
+            "1. Foreword\n2. Don't Stay\n3. Somewhere I Belong\n4. Lying from You"
+        )
+        self.assertEqual(tracklist[1]["title"], "Don't Stay")
+        quality = guard._score_research_results(
+            [{"title": "Meteora", "url": "https://example.com/meteora", "snippet": "Track listing."}],
+            "Meteora tracklist",
+        )
+        context = guard._format_context(
+            {"success": True, "provider": "test", "query": "Meteora tracklist", "results": quality["results"]},
+            "general-knowledge",
+            "qwen",
+            quality,
+            "Wie ist die Tracklist von Meteora?",
+            [{"title": "Meteora", "url": "https://example.com/meteora", "text": "excerpt", "structured_tracklist": tracklist}],
+        )
+        self.assertIn("Strukturierte Tracklist-Kandidaten", context)
+        self.assertIn("2. Don't Stay", context)
 
 
 if __name__ == "__main__":

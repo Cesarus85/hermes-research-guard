@@ -1,3 +1,11 @@
+## 2026-05-10 - Deep-Fetch-Parität nachgezogen
+- **Typ:** feature
+- **Auslöser:** Chat — Nachfrage, ob Deep Fetch direkt auf OpenClaw-Parität gebracht werden soll.
+- **Änderung:** Deep Fetch fetches topbewertete Seiten jetzt parallel, der Cache-Key enthält das konkrete Deep-Fetch-Profil, und einfache nummerierte Tracklist-Kandidaten werden aus vertieften Auszügen extrahiert.
+- **Inhalt:** Der Kontext zeigt `Strukturierte Tracklist-Kandidaten`, wenn nummerierte Listen erkannt werden. Status/Entscheidungen speichern weiterhin `deep_fetch`, `deep_fetch_reason` und `fetched_source_count`.
+- **Version:** Plugin-Version auf `0.6.1` erhöht.
+- **Tests:** Coverage für Deep-Fetch-Profil, Cache-Key-Form und strukturierte Tracklist-Extraktion ergänzt.
+
 ## 2026-05-10 - Structured Deep Fetch für Tracklists
 - **Typ:** feature/fix
 - **Auslöser:** Chat — Hermes halluzinierte bei der Meteora-Tracklist Songs von `Hybrid Theory`, obwohl Research Guard Quellen gefunden hatte.
