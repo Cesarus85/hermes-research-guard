@@ -28,8 +28,8 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 |---|---|---|
 | Pre-answer research hook | `[x]` | Hermes `pre_llm_call` is the equivalent of OpenClaw `before_prompt_build`, with user-message context injection. |
 | Manual `research_guard_search` tool | `[x]` | Present in v0.1, but provider normalization and scoring still need parity. |
-| Manual `#research` / `/research` force prefix | `[x]` | Hermes currently supports `#research`; slash-prefix handling should be made fully consistent. |
-| Manual `#no-research` / `/no-research` skip prefix | `[x]` | Hermes currently supports `#no-research`; slash-prefix handling should be made fully consistent. |
+| Manual `#research` / `/research` force prefix | `[x]` | Present and consistent. |
+| Manual `#no-research` / `/no-research` skip prefix | `[x]` | Present and consistent. |
 | Basic local model detection | `[x]` | Present, but OpenClaw has stronger provider-aware logic. |
 | Provider-aware local/cloud model gate | `[ ] PORT` | Add local provider patterns, cloud provider patterns, explicit `:cloud` handling, and `allowCloudResearchTriggers`. |
 | Brave Search provider | `[ ] PORT` | Add direct Brave API via `BRAVE_API_KEY`. |
@@ -40,8 +40,8 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Provider-aware cache keys | `[ ] PORT` | OpenClaw does this better; add provider, result count, deep-fetch flags. |
 | Trigger heuristics for factual/current questions | `[x]` | Present in simpler form. Port the expanded German/English rules. |
 | Skip rules for code/files/terminal/memory/personal tasks | `[x]` | Present in simpler form. Port the expanded OpenClaw skip list. |
-| Local infrastructure skip rules | `[ ] PORT` | Important: skip IP, host, SSH, Tailscale, ping, local reachability, service status. |
-| Speech wrapper cleanup | `[ ] PORT` | Strip `Audio:`, `Voice:`, `Transkript:`, `Sprachnachricht:` before classification and query building. |
+| Local infrastructure skip rules | `[x]` | Skips IP, host, SSH, Tailscale, ping, local reachability, and service-status prompts. |
+| Speech wrapper cleanup | `[x]` | Strips `Audio:`, `Voice:`, `Transkript:`, `Sprachnachricht:` before classification and query building. |
 | OpenClaw metadata cleanup | `[ ] LIMIT` | OpenClaw-specific metadata is not relevant unless Hermes gains equivalent wrappers. |
 | Follow-up subject carryover | `[ ] PORT` | Hermes receives `conversation_history`, so prior subject extraction is portable. |
 | Structured deep fetch | `[ ] PORT` | Fetch top-page excerpts for detail-heavy prompts such as tracklists, tables, release notes, prices, and population facts. |
@@ -57,7 +57,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | `research_guard_status` tool | `[ ] PORT` | Add in-memory ring buffer, last decisions, skip reasons, provider, query, cache, confidence, sources. |
 | Status response policy | `[ ] ADAPT` | Implement as tool output text and/or context instruction; no system-prompt policy hook. |
 | Debug mode | `[ ] PORT` | Add `RESEARCH_GUARD_DEBUG=1` and compact decision explanations. |
-| Tests | `[ ] PORT` | Translate OpenClaw Vitest coverage into Python tests. |
+| Tests | `[ ] PORT` | Initial dependency-free Python tests exist for the v0.4 privacy-skip port; broader OpenClaw parity coverage remains. |
 
 ## v0.2 - Provider And Search Backend Parity
 
@@ -84,27 +84,27 @@ Goal: reduce over-searching while making factual-risk prompts more reliable for 
 - [ ] PORT Add mode setting: `RESEARCH_GUARD_MODE=conservative|balanced|aggressive`.
 - [ ] PORT Expand factual/current trigger patterns for German and English prompts.
 - [ ] PORT Add explicit triggers for population, mayors, presidents, releases, prices, versions, changelogs, and comparisons.
-- [ ] PORT Make `/research` and `/no-research` behave the same as `#research` and `#no-research`.
+- [x] Make `/research` and `/no-research` behave the same as `#research` and `#no-research`.
 
 ## v0.4 - Skip Rules And Privacy Boundaries
 
 Goal: avoid leaking local/private prompts into web search.
 
-- [ ] PORT Skip coding, scripting, repo, file, workspace, terminal, shell, and git tasks.
-- [ ] PORT Skip personal memory, calendar, mail, notes, and "what did I say earlier" prompts.
-- [ ] PORT Skip local infrastructure questions: IP address, hostname, host, port, SSH, ping, Tailscale, LAN, local reachability, service status.
-- [ ] PORT Skip slash-command tasks unless manually forced.
-- [ ] PORT Strip speech wrappers before classification and query building.
+- [x] Skip coding, scripting, repo, file, workspace, terminal, shell, and git tasks.
+- [x] Skip personal memory, calendar, mail, notes, and "what did I say earlier" prompts.
+- [x] Skip local infrastructure questions: IP address, hostname, host, port, SSH, ping, Tailscale, LAN, local reachability, service status.
+- [x] Skip slash-command tasks unless manually forced.
+- [x] Strip speech wrappers before classification and query building.
 - [ ] ADAPT Add Hermes-specific wrapper cleanup if gateway/transcription text adds stable metadata.
 - [ ] PORT Redact prompt previews in diagnostics: emails, phone-like numbers, long tokens.
-- [ ] PORT Document privacy implications of automatic external search.
+- [x] Document privacy implications of automatic external search.
 
 ## v0.5 - Query Quality
 
 Goal: turn conversational prompts into search-friendly queries without losing user intent.
 
-- [ ] PORT Strip manual research prefixes before search.
-- [ ] PORT Strip stale `[Research Guard: ...]` blocks before search.
+- [x] Strip manual research prefixes before search.
+- [x] Strip stale `[Research Guard: ...]` blocks before search.
 - [ ] PORT Carry prior subject into follow-up queries when prompts use pronouns or demonstratives.
 - [ ] PORT Add subject extraction for identity, location, and named-entity questions.
 - [ ] ADAPT Use Hermes `conversation_history` for follow-up subject extraction.
@@ -204,8 +204,8 @@ Goal: make future changes safe.
 
 - [ ] PORT Translate OpenClaw heuristic tests into Python tests.
 - [ ] PORT Add tests for model detection, cloud markers, manual force/skip, and cloud-trigger escape hatch.
-- [ ] PORT Add tests for local infrastructure skip rules.
-- [ ] PORT Add tests for speech-wrapper cleanup.
+- [x] Add tests for local infrastructure skip rules.
+- [x] Add tests for speech-wrapper cleanup.
 - [ ] PORT Add tests for follow-up subject carryover.
 - [ ] PORT Add tests for source scoring and confidence gates.
 - [ ] PORT Add tests for duplicate/same-domain dampening.
