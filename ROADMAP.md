@@ -43,7 +43,9 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Local infrastructure skip rules | `[x]` | Skips IP, host, SSH, Tailscale, ping, local reachability, and service-status prompts. |
 | Speech wrapper cleanup | `[x]` | Strips `Audio:`, `Voice:`, `Transkript:`, `Sprachnachricht:` before classification and query building. |
 | OpenClaw metadata cleanup | `[ ] LIMIT` | OpenClaw-specific metadata is not relevant unless Hermes gains equivalent wrappers. |
-| Follow-up subject carryover | `[ ] PORT` | Hermes receives `conversation_history`, so prior subject extraction is portable. |
+| Follow-up source/status handling | `[x]` | Source provenance follow-ups use the in-memory Research Guard decision buffer instead of literal follow-up searches. |
+| Context/opinion follow-up guard | `[x]` | Short prompts such as "Was hältst du davon?" reuse the last Research Guard topic instead of searching the literal phrase. |
+| Follow-up subject carryover | `[ ] PORT` | Full prior-subject extraction from Hermes `conversation_history` is still pending for broader pronoun/demonstrative rewrites. |
 | Structured deep fetch | `[ ] PORT` | Fetch top-page excerpts for detail-heavy prompts such as tracklists, tables, release notes, prices, and population facts. |
 | Source quality scoring | `[ ] PORT` | Port official/docs/government/vendor/project/freshness scoring. |
 | Confidence gating | `[ ] PORT` | Add `minConfidence`, `requireMultipleSources`, usable-source count, and injection blocking. |
@@ -105,6 +107,8 @@ Goal: turn conversational prompts into search-friendly queries without losing us
 
 - [x] Strip manual research prefixes before search.
 - [x] Strip stale `[Research Guard: ...]` blocks before search.
+- [x] Skip source-provenance follow-ups such as "Wo hast du die Info her?" and answer from the last Research Guard decision.
+- [x] Skip context/opinion follow-ups such as "Was hältst du davon?" and inject the last Research Guard topic instead of searching the literal phrase.
 - [ ] PORT Carry prior subject into follow-up queries when prompts use pronouns or demonstratives.
 - [ ] PORT Add subject extraction for identity, location, and named-entity questions.
 - [ ] ADAPT Use Hermes `conversation_history` for follow-up subject extraction.
@@ -206,6 +210,8 @@ Goal: make future changes safe.
 - [ ] PORT Add tests for model detection, cloud markers, manual force/skip, and cloud-trigger escape hatch.
 - [x] Add tests for local infrastructure skip rules.
 - [x] Add tests for speech-wrapper cleanup.
+- [x] Add tests for source-provenance follow-ups.
+- [x] Add tests for context/opinion follow-ups.
 - [ ] PORT Add tests for follow-up subject carryover.
 - [ ] PORT Add tests for source scoring and confidence gates.
 - [ ] PORT Add tests for duplicate/same-domain dampening.

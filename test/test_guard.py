@@ -75,6 +75,13 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
     def test_source_followups_do_not_trigger_a_fresh_web_search(self):
         self.assertEqual(guard._should_research("Wo hast du die Info her?"), (False, "source-followup"))
         self.assertEqual(guard._should_research("Was waren deine Quellen?"), (False, "source-followup"))
+        self.assertEqual(guard._should_research("/research Wo hast du die Info her?"), (True, "explicit"))
+
+    def test_context_followups_do_not_trigger_literal_web_search(self):
+        self.assertEqual(guard._should_research("Was hältst du davon?"), (False, "context-followup"))
+        self.assertEqual(guard._should_research("Was sagst du dazu?"), (False, "context-followup"))
+        self.assertEqual(guard._should_research("Wie findest du das?"), (False, "context-followup"))
+        self.assertEqual(guard._should_research("/research Was hältst du davon?"), (True, "explicit"))
 
     def test_source_followup_context_uses_last_research_decision(self):
         guard.DECISIONS.clear()
@@ -97,6 +104,29 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Bürgermeister Forchheim", context)
         self.assertIn("https://www.forchheim.de/rathaus-service/", context)
         self.assertIn("NICHT", context)
+
+    def test_context_followup_context_uses_last_research_decision(self):
+        guard.DECISIONS.clear()
+        guard._record_decision(
+            "injected",
+            "factual-question",
+            provider="duckduckgo-html",
+            query="Wer ist Wal Timmy?",
+            sources=[
+                {
+                    "title": "NDR Timmy",
+                    "url": "https://www.ndr.de/",
+                    "snippet": "Bericht über Timmy.",
+                }
+            ],
+        )
+
+        context = guard._format_context_followup_context()
+        self.assertIn("Research Guard: Kontext-Follow-up", context)
+        self.assertIn("Wer ist Wal Timmy?", context)
+        self.assertIn("https://www.ndr.de/", context)
+        self.assertIn("Suche NICHT", context)
+        self.assertIn("Meinung", context)
 
     def test_status_tool_reports_recent_decisions(self):
         guard.DECISIONS.clear()

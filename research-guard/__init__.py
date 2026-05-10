@@ -38,6 +38,20 @@ SOURCE_FOLLOWUP_RE = re.compile(
     r"source|sources|where.*source|how.*answer)\b",
     re.IGNORECASE,
 )
+CONTEXT_FOLLOWUP_RE = re.compile(
+    r"^\s*(?:"
+    r"was\s+hältst\s+du\s+(?:davon|darüber|dazu)"
+    r"|was\s+sagst\s+du\s+(?:dazu|darüber|davon)"
+    r"|wie\s+findest\s+du\s+(?:das|es|die\s+sache)"
+    r"|was\s+meinst\s+du(?:\s+(?:dazu|darüber|davon))?"
+    r"|deine\s+meinung(?:\s+(?:dazu|darüber|davon))?"
+    r"|was\s+ist\s+deine\s+meinung(?:\s+(?:dazu|darüber|davon))?"
+    r"|what\s+do\s+you\s+think(?:\s+(?:about\s+(?:it|that|this)))?"
+    r"|thoughts(?:\s+(?:on\s+(?:it|that|this)))?"
+    r"|your\s+opinion(?:\s+(?:on\s+(?:it|that|this)))?"
+    r")\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
 
 QUESTION_RE = re.compile(
     r"\b(wer|was|wann|wo|warum|wie|welche|welcher|welches|wieviel|wie viel|"
@@ -147,6 +161,13 @@ def _is_source_followup(message: str) -> bool:
     return bool(SOURCE_FOLLOWUP_RE.search(text))
 
 
+def _is_context_followup(message: str) -> bool:
+    text = _clean_message_for_research(message)
+    if not text or len(text) > 140:
+        return False
+    return bool(CONTEXT_FOLLOWUP_RE.match(text))
+
+
 def _should_research(message: str) -> tuple[bool, str]:
     text = _clean_message_for_research(message)
     if not text:
@@ -157,6 +178,8 @@ def _should_research(message: str) -> tuple[bool, str]:
         return True, "explicit"
     if _is_source_followup(text):
         return False, "source-followup"
+    if _is_context_followup(text):
+        return False, "context-followup"
     if SLASH_COMMAND_RE.match(text):
         return False, "slash-command"
     if len(text) < 12:
@@ -243,6 +266,45 @@ def _format_source_followup_context() -> str:
         *source_lines,
         "Antworte kurz und nenne Research Guard sowie 1-2 passende URLs.",
         "[/Research Guard: Quellenstatus]",
+    ])
+
+
+def _format_context_followup_context() -> str:
+    decision = _last_research_decision()
+    if not decision:
+        return "\n".join([
+            "[Research Guard: Kontext-Follow-up]",
+            "Der Nutzer stellt eine kontextabhängige Anschlussfrage, vermutlich zum vorherigen Thema.",
+            "Es liegt in diesem Hermes-Prozess keine gespeicherte Research-Guard-Recherche mit Quellen vor.",
+            "Suche nicht nach dem Wortlaut der Anschlussfrage. Nutze nur den sichtbaren Gesprächskontext und behaupte keine neuen Webquellen.",
+            "Wenn du eine Meinung formulierst, trenne sie klar von belegten Fakten.",
+            "[/Research Guard: Kontext-Follow-up]",
+        ])
+
+    source_lines = []
+    for idx, item in enumerate(decision.get("sources") or [], 1):
+        source_lines.append(f"{idx}. {item.get('title') or 'Untitled'}")
+        source_lines.append(f"   URL: {item.get('url') or ''}")
+        snippet = item.get("snippet")
+        if snippet:
+            source_lines.append(f"   Auszug: {snippet}")
+    if not source_lines:
+        source_lines.append("Keine Quellen im Statuspuffer gespeichert.")
+
+    return "\n".join([
+        "[Research Guard: Kontext-Follow-up]",
+        "Der Nutzer stellt eine kontextabhängige Anschlussfrage, wahrscheinlich zum vorherigen Research-Guard-Thema.",
+        "Suche NICHT nach dem Wortlaut dieser Anschlussfrage und behaupte nicht, Research Guard habe danach gesucht.",
+        "Wenn die Frage nach einer Meinung oder Einordnung fragt, antworte als Einordnung auf Basis des bisherigen Gesprächs.",
+        "Trenne belegte Fakten aus den Quellen von deiner Bewertung. Erfinde keine zusätzlichen aktuellen Details.",
+        f"Letzte Research-Guard-Aktion: {decision.get('action')}",
+        f"Grund: {decision.get('reason')}",
+        f"Provider: {decision.get('provider') or 'unknown'}",
+        f"Query des vorherigen Themas: {decision.get('query') or 'unknown'}",
+        "Quellen der letzten Research-Guard-Recherche:",
+        *source_lines,
+        "Antworte direkt auf die Anschlussfrage und nenne Quellen nur, wenn sie für Fakten in der Einordnung relevant sind.",
+        "[/Research Guard: Kontext-Follow-up]",
     ])
 
 
@@ -424,9 +486,11 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
     if not _is_local_or_small_model(model):
         _record_decision("skipped", "non-local model gate", model=model)
         return None
-    if _is_source_followup(user_message):
-        return {"context": _format_source_followup_context()}
     should, reason = _should_research(user_message)
+    if reason == "source-followup":
+        return {"context": _format_source_followup_context()}
+    if reason == "context-followup":
+        return {"context": _format_context_followup_context()}
     if not should:
         _record_decision("skipped", reason, model=model, prompt=_clean_message_for_research(user_message)[:180])
         return None

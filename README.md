@@ -16,6 +16,7 @@ It is meant for setups where models like Qwen, Llama, Mistral, Gemma, Phi, or Ol
 - Injects compact source context into the user message, not the system prompt.
 - Tells the model to cite Research Guard sources when context was injected.
 - Keeps a small in-memory decision buffer so source follow-ups such as `Wo hast du die Info her?` can be answered from the previous Research Guard decision instead of triggering a fresh search for the follow-up itself.
+- Detects context/opinion follow-ups such as `Was hältst du davon?` and reuses the last Research Guard topic instead of searching the literal follow-up phrase.
 - Exposes manual `research_guard_search` and `research_guard_status` tools for debugging/manual use.
 
 This keeps system prompts stable and preserves prompt-cache efficiency.
@@ -102,6 +103,20 @@ research_guard_status
 ```
 
 That tool returns the recent decision buffer as JSON.
+
+## Context and opinion follow-ups
+
+Short follow-ups such as:
+
+```text
+Was hältst du davon?
+Was sagst du dazu?
+Wie findest du das?
+```
+
+are usually about the previous topic, not standalone search queries. Research Guard therefore skips literal web searches for those phrases and injects a `[Research Guard: Kontext-Follow-up]` block instead. The block points the model at the last Research Guard query and stored URLs, and tells it to separate source-backed facts from its own opinion or assessment.
+
+If the Hermes process was restarted or no previous Research Guard decision exists, the model is told to answer from visible conversation context only and not invent web sources.
 
 ## Privacy boundaries
 
