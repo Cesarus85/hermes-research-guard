@@ -21,7 +21,8 @@ It is meant for setups where models like Qwen, Llama, Mistral, Gemma, Phi, or Ol
 - Keeps a small in-memory decision buffer so source follow-ups such as `Wo hast du die Info her?` can be answered from the previous Research Guard decision instead of triggering a fresh search for the follow-up itself.
 - Detects context/opinion follow-ups such as `Was hältst du davon?` and reuses the last Research Guard topic instead of searching the literal follow-up phrase.
 - Carries a prior subject from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative follow-up search queries such as `Was ist mit ihm danach passiert?`.
-- Exposes manual `research_guard_search` and `research_guard_status` tools for debugging/manual use. Status v2 includes cache stats, config snapshot, decision categories, visible effect, evidence strings, source-quality fields, and redacted query-building diagnostics.
+- Exposes manual `research_guard_search`, `research_guard_status`, and `research_guard_diagnostics` tools for debugging/manual use. Status v2 includes cache stats, config snapshot, decision categories, visible effect, evidence strings, source-quality fields, and redacted query-building diagnostics.
+- Detects direct status requests such as `Zeig mir den Research Guard Status` and injects the same diagnostics even when Hermes does not trigger the status tool call itself.
 
 This keeps system prompts stable and preserves prompt-cache efficiency.
 
@@ -54,7 +55,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.6.1
+version: 0.6.2
 ```
 
 Enable it:

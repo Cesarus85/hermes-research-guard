@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -53,6 +53,16 @@ SOURCE_FOLLOWUP_RE = re.compile(
     r"\b(woher|wo hast du|wo habt ihr|quelle|quellen|beleg|belege|"
     r"info her|information her|zustande|recherchiert|gesucht|research[-_\s]*guard|"
     r"source|sources|where.*source|how.*answer)\b",
+    re.IGNORECASE,
+)
+STATUS_REQUEST_RE = re.compile(
+    r"\b(?:research[-_\s]*guard|research_guard|guard)\b[\s\S]{0,80}"
+    r"\b(?:status|diagnos(?:e|tik|tic|tics)?|debug|zustand|health)\b"
+    r"|"
+    r"\b(?:status|diagnos(?:e|tik|tic|tics)?|debug|zustand|health)\b[\s\S]{0,80}"
+    r"\b(?:research[-_\s]*guard|research_guard|guard)\b"
+    r"|"
+    r"\bresearch_guard_(?:status|diagnostics)\b",
     re.IGNORECASE,
 )
 CONTEXT_FOLLOWUP_RE = re.compile(
@@ -315,6 +325,13 @@ def _is_source_followup(message: str) -> bool:
     return bool(SOURCE_FOLLOWUP_RE.search(text))
 
 
+def _is_status_request(message: str) -> bool:
+    text = _clean_message_for_research(message)
+    if not text:
+        return False
+    return bool(STATUS_REQUEST_RE.search(text))
+
+
 def _is_context_followup(message: str) -> bool:
     text = _clean_message_for_research(message)
     if not text or len(text) > 140:
@@ -330,6 +347,8 @@ def _should_research(message: str) -> tuple[bool, str]:
         return False, "opt-out"
     if RESEARCH_PREFIX_RE.match(text):
         return True, "explicit"
+    if _is_status_request(text):
+        return False, "status-request"
     if _is_source_followup(text):
         return False, "source-followup"
     if _is_context_followup(text):
@@ -820,6 +839,19 @@ def _format_source_followup_context() -> str:
     ])
 
 
+def _format_status_request_context() -> str:
+    status_payload = research_guard_status({"limit": 5})
+    return "\n".join([
+        "[Research Guard: Diagnose-Status]",
+        "Der Nutzer fragt ausdrücklich nach dem Research-Guard-Status.",
+        "Antworte ausschließlich mit diesem Diagnose-Status. Beantworte nicht die vorherige Fachfrage und erfinde keine Quellen.",
+        "Wenn du zusammenfasst, nenne mindestens status_version, categories, letzte decisions, config und cache.",
+        "Status-JSON:",
+        status_payload,
+        "[/Research Guard: Diagnose-Status]",
+    ])
+
+
 def _format_context_followup_context() -> str:
     decision = _last_research_decision()
     if not decision:
@@ -1302,6 +1334,12 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
         _record_decision("skipped", "plugin disabled", model=model, provider=provider, query_debug=query_debug)
         return None
     should, reason = _should_research(user_message)
+    if reason == "status-request":
+        return {"context": _format_status_request_context()}
+    if reason == "source-followup":
+        return {"context": _format_source_followup_context()}
+    if reason == "context-followup":
+        return {"context": _format_context_followup_context()}
     if _should_skip_for_model_gate(model, provider, should, reason):
         _record_decision(
             "skipped",
@@ -1317,10 +1355,6 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             prompt=_clean_message_for_research(user_message)[:180],
         )
         return None
-    if reason == "source-followup":
-        return {"context": _format_source_followup_context()}
-    if reason == "context-followup":
-        return {"context": _format_context_followup_context()}
     if not should:
         _record_decision("skipped", reason, model=model, provider=provider, query_debug=query_debug, prompt=_clean_message_for_research(user_message)[:180])
         return None

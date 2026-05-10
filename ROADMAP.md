@@ -43,7 +43,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Local infrastructure skip rules | `[x]` | Skips IP, host, SSH, Tailscale, ping, local reachability, and service-status prompts. |
 | Speech wrapper cleanup | `[x]` | Strips `Audio:`, `Voice:`, `Transkript:`, `Sprachnachricht:` before classification and query building. |
 | OpenClaw metadata cleanup | `[ ] LIMIT` | OpenClaw-specific metadata is not relevant unless Hermes gains equivalent wrappers. |
-| Follow-up source/status handling | `[x]` | Source provenance follow-ups use the in-memory Research Guard decision buffer instead of literal follow-up searches. |
+| Follow-up source/status handling | `[x]` | Source provenance follow-ups use the in-memory Research Guard decision buffer instead of literal follow-up searches. v0.6.2 also detects direct Research Guard status/diagnostic prompts before source-follow-up matching. |
 | Context/opinion follow-up guard | `[x]` | Short prompts such as "Was hältst du davon?" reuse the last Research Guard topic instead of searching the literal phrase. |
 | Follow-up subject carryover | `[x]` | v0.4.0 carries prior subjects from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative search queries. |
 | Structured deep fetch | `[x]` | v0.6.1 fetches readable top-source excerpts in parallel and extracts simple structured tracklist candidates. |
@@ -57,7 +57,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Required Research Guard source line | `[ ] ADAPT` | Add instruction inside context block, optionally controlled by `RESEARCH_GUARD_REQUIRE_SOURCES`. |
 | No-research stale-context boundary | `[ ] ADAPT` | Hermes context is ephemeral, but a skipped-turn boundary can still help local models. |
 | `research_guard_status` tool | `[x]` | v0.5.0 status v2 includes decision buffer, config snapshot, cache stats, categories, visible effect, evidence, query debug, and source-quality fields. |
-| Status response policy | `[x]` | Tool output is diagnostic-only through schema description and structured status payload. |
+| Status response policy | `[x]` | Tool output is diagnostic-only through schema description and structured status payload; v0.6.2 injects status-v2 diagnostics for direct status prompts when Hermes does not call the tool. |
 | Debug mode | `[x]` | v0.5.0 adds compact decision explanations through status v2; env-driven extra debug remains optional future polish. |
 | Tests | `[ ] PORT` | Initial dependency-free Python tests exist for the v0.4 privacy-skip port; broader OpenClaw parity coverage remains. |
 

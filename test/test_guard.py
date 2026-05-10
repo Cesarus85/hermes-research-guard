@@ -128,6 +128,11 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(guard._should_research("Was waren deine Quellen?"), (False, "source-followup"))
         self.assertEqual(guard._should_research("/research Wo hast du die Info her?"), (True, "explicit"))
 
+    def test_research_guard_status_requests_do_not_become_source_followups(self):
+        self.assertEqual(guard._should_research("Zeig mir den Research Guard Status"), (False, "status-request"))
+        self.assertEqual(guard._should_research("research_guard_status"), (False, "status-request"))
+        self.assertEqual(guard._should_research("Diagnose vom research guard bitte"), (False, "status-request"))
+
     def test_context_followups_do_not_trigger_literal_web_search(self):
         self.assertEqual(guard._should_research("Was hältst du davon?"), (False, "context-followup"))
         self.assertEqual(guard._should_research("Was sagst du dazu?"), (False, "context-followup"))
@@ -186,6 +191,17 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn('"plugin": "research-guard"', payload)
         self.assertIn('"status_version": 2', payload)
         self.assertIn('"reason": "local-infrastructure"', payload)
+
+    def test_status_request_context_embeds_diagnostics(self):
+        guard.DECISIONS.clear()
+        guard._record_decision("injected", "factual-question", model="qwen", query="Meteora tracklist")
+
+        context = guard._format_status_request_context()
+
+        self.assertIn("Research Guard: Diagnose-Status", context)
+        self.assertIn('"status_version": 2', context)
+        self.assertIn('"reason": "factual-question"', context)
+        self.assertIn("Antworte ausschließlich", context)
 
     def test_status_v2_adds_categories_evidence_and_redacted_prompt_preview(self):
         guard.DECISIONS.clear()

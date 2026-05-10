@@ -1,3 +1,11 @@
+## 2026-05-10 - Status-Anfragen robuster erkannt
+- **Typ:** fix
+- **Auslöser:** Chat — Hermes beantwortete `Zeig mir den Research Guard status` wie eine Quellen-Nachfrage zur vorherigen Antwort, statt den Diagnose-Status auszugeben.
+- **Ursache:** `research guard` war Teil der Quellen-Follow-up-Erkennung. Dadurch gewann `source-followup` vor einem echten Status-/Diagnose-Intent, wenn Hermes keinen Tool-Call auslöste.
+- **Änderung:** Eigene Status-Erkennung für `Research Guard Status`, `research_guard_status`, `research_guard_diagnostics`, Diagnose-/Debug-/Health-Fragen. Diese greift vor der Quellenlogik und injiziert den Status-v2-Payload direkt in den Hook-Kontext.
+- **Version:** Plugin-Version auf `0.6.2` erhöht.
+- **Tests:** Coverage ergänzt, damit Statusfragen nicht mehr als Quellen-Follow-up klassifiziert werden und der Diagnose-Kontext Status-v2-JSON enthält.
+
 ## 2026-05-10 - Deep-Fetch-Parität nachgezogen
 - **Typ:** feature
 - **Auslöser:** Chat — Nachfrage, ob Deep Fetch direkt auf OpenClaw-Parität gebracht werden soll.
