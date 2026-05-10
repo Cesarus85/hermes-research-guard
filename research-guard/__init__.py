@@ -22,10 +22,28 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.6.3"
+__version__ = "0.6.4"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
+STATUS_RESPONSE_POLICY = {
+    "mode": "diagnostics_only",
+    "instruction": (
+        "Answer only with Research Guard status and decision diagnostics. Do not repeat, continue, shorten, "
+        "correct, or summarize the previous factual answer unless the user explicitly asks for that separately."
+    ),
+    "allowed_content": [
+        "plugin status",
+        "decision categories",
+        "whether Research Guard searched, injected, skipped, or failed",
+        "provider, query, confidence, cache, deep-fetch, source-quality signals, warnings",
+    ],
+    "disallowed_content": [
+        "a fresh factual answer to the previous user question",
+        "a summary of the previous assistant answer",
+        "new web-search conclusions outside the returned status data",
+    ],
+}
 CONFIDENCE_RANK = {"low": 1, "medium": 2, "high": 3}
 DEFAULT_LOCAL_MODEL_PATTERNS = (
     "qwen", "ollama", "llama", "mistral", "gemma", "phi", "deepseek",
@@ -63,6 +81,16 @@ STATUS_REQUEST_RE = re.compile(
     r"\b(?:research[-_\s]*guard|research_guard|guard)\b"
     r"|"
     r"\bresearch_guard_(?:status|diagnostics)\b",
+    re.IGNORECASE,
+)
+INTERNAL_NOTE_RE = re.compile(
+    r"^\s*(?:"
+    r"\[[^\]]*(?:note|model\s+switch|gateway|restart|system|internal|status)[^\]]*\]"
+    r"|"
+    r"(?:accomplished|completed|done|ok|ready)\s+\[[^\]]*(?:gateway|restart|note|system|internal)[^\]]*\]"
+    r"|"
+    r"(?:gateway|plugin|model)\s+(?:restart|switch|reload|note)\b"
+    r")",
     re.IGNORECASE,
 )
 CONTEXT_FOLLOWUP_RE = re.compile(
@@ -349,6 +377,8 @@ def _should_research(message: str) -> tuple[bool, str]:
         return False, "opt-out"
     if RESEARCH_PREFIX_RE.match(text):
         return True, "explicit"
+    if INTERNAL_NOTE_RE.search(text):
+        return False, "internal-note"
     if _is_status_request(text):
         return False, "status-request"
     if _is_source_followup(text):
@@ -411,13 +441,25 @@ def _decision_category(decision: dict[str, Any]) -> str:
         return "researched_and_injected"
     if action == "manual_search":
         return "manual_research"
-    if action == "failed" and ("confidence" in reason or "quality" in reason or "usable" in reason):
+    if action == "failed" and not decision.get("error") and _decision_was_searched(decision):
         return "researched_but_not_injected"
     if action == "failed":
         return "failed"
     if action == "skipped":
         return "checked_and_skipped"
     return str(action or "unknown")
+
+
+def _decision_was_searched(decision: dict[str, Any]) -> bool:
+    if decision.get("action") in {"injected", "manual_search"}:
+        return True
+    return bool(
+        decision.get("query")
+        and decision.get("provider")
+        and any(decision.get(field) is not None for field in (
+            "score", "usable_result_count", "blocked_result_count", "fetched_source_count", "cached", "cache_key",
+        ))
+    )
 
 
 def _visible_effect(decision: dict[str, Any]) -> str:
@@ -427,18 +469,60 @@ def _visible_effect(decision: dict[str, Any]) -> str:
     if action == "manual_search":
         return "manual_tool_result"
     if action == "failed":
-        return "error_or_no_context"
+        return "error" if decision.get("error") else "none"
     return "none"
+
+
+def _provider_path(provider: str | None) -> str | None:
+    if not provider:
+        return None
+    if provider == "hermes-web" or provider.startswith("hermes"):
+        return f"Hermes Web Search -> {provider}"
+    return f"Research Guard direct fallback -> {provider}"
+
+
+def _diagnostic_explanation(decision: dict[str, Any], category: str, searched: bool) -> str:
+    action = decision.get("action")
+    query = decision.get("query") or "the prompt"
+    if category == "researched_and_injected":
+        return f'Research Guard searched for "{query}" and injected source context before the model answered.'
+    if category == "manual_research":
+        return f'Research Guard was explicitly called as a manual search tool for "{query}".'
+    if category == "researched_but_not_injected":
+        return f'Research Guard searched for "{query}" but did not inject context because: {decision.get("reason")}.'
+    if category == "failed":
+        return f'Research Guard attempted to run and failed: {decision.get("error") or decision.get("reason")}.'
+    if action == "skipped" or not searched:
+        return f'Research Guard inspected the prompt and skipped research because: {decision.get("reason")}.'
+    return f'Research Guard decision category: {category}.'
 
 
 def _diagnose_decision(decision: dict[str, Any]) -> dict[str, Any]:
     diagnostic = dict(decision)
-    diagnostic["category"] = _decision_category(decision)
-    diagnostic["visible_effect"] = _visible_effect(decision)
+    category = _decision_category(decision)
+    visible_effect = _visible_effect(decision)
+    searched = _decision_was_searched(decision)
+    manual_tool = decision.get("action") == "manual_search"
+    failed = category == "failed"
+    nested_diagnostic = {
+        "guard_involved": True,
+        "category": category,
+        "visible_effect": visible_effect,
+        "searched": searched,
+        "injected_context": decision.get("action") == "injected",
+        "manual_tool": manual_tool,
+        "skipped": category in {"checked_and_skipped", "researched_but_not_injected"},
+        "failed": failed,
+        "provider_path": _provider_path(str(decision.get("provider") or "")) if decision.get("provider") else None,
+        "explanation": _diagnostic_explanation(decision, category, searched),
+    }
+    diagnostic["category"] = category
+    diagnostic["visible_effect"] = visible_effect
     evidence = [f"action={decision.get('action')}", f"reason={decision.get('reason')}"]
     for field, label in (
         ("provider", "provider"),
         ("query", "query"),
+        ("fetched_source_count", "fetched"),
         ("confidence", "confidence"),
         ("score", "score"),
         ("usable_result_count", "usable"),
@@ -452,7 +536,37 @@ def _diagnose_decision(decision: dict[str, Any]) -> dict[str, Any]:
         if field in decision and decision.get(field) is not None:
             evidence.append(f"{label}={decision.get(field)}")
     diagnostic["evidence"] = evidence
+    nested_diagnostic["evidence"] = evidence
+    diagnostic["diagnostic"] = nested_diagnostic
     return diagnostic
+
+
+def _summarize_decision_history(decisions: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = {
+        "total": len(decisions),
+        "sources_injected": 0,
+        "manual_searches": 0,
+        "searched_but_not_injected": 0,
+        "checked_and_skipped": 0,
+        "failed": 0,
+    }
+    for decision in decisions:
+        category = str(decision.get("category") or "")
+        if category == "researched_and_injected":
+            counts["sources_injected"] += 1
+        elif category == "manual_research":
+            counts["manual_searches"] += 1
+        elif category == "researched_but_not_injected":
+            counts["searched_but_not_injected"] += 1
+        elif category == "checked_and_skipped":
+            counts["checked_and_skipped"] += 1
+        elif category == "failed":
+            counts["failed"] += 1
+    return {
+        **counts,
+        "latest": decisions[0].get("category") if decisions else None,
+        "latest_visible_effect": decisions[0].get("visible_effect") if decisions else None,
+    }
 
 
 def _recent_decisions(limit: int = 5) -> list[dict[str, Any]]:
@@ -846,10 +960,13 @@ def _format_status_request_context() -> str:
     return "\n".join([
         "[Research Guard: Diagnose-Status]",
         "Der Nutzer fragt ausdrücklich nach dem Research-Guard-Status.",
-        "Antworte ausschließlich mit diesem Diagnose-Status. Beantworte nicht die vorherige Fachfrage und erfinde keine Quellen.",
-        "Wenn du zusammenfasst, nenne mindestens status_version, categories, letzte decisions, config und cache.",
-        "Status-JSON:",
+        "Antworte ausschließlich mit dem folgenden Status-JSON. Gib keine Quellenliste zur vorherigen Antwort aus.",
+        "Gib keine freie Zusammenfassung, kein `Alles aktiv`, keine Empfehlungen und keine nachträgliche Interpretation aus.",
+        "Benenne Felder nicht um: `decisions` muss `decisions` bleiben, `response_policy` muss sichtbar bleiben.",
+        "Wenn du den Inhalt kürzen musst, sage nur: `Research Guard Status ist im Kontext vorhanden, aber zu groß zum vollständigen Ausgeben.`",
+        "Status-JSON BEGIN",
         status_payload,
+        "Status-JSON END",
         "[/Research Guard: Diagnose-Status]",
     ])
 
@@ -1296,7 +1413,10 @@ def research_guard_status(args: dict, **kwargs) -> str:
     """Manual tool: show recent Research Guard decisions."""
     del kwargs
     limit = int(args.get("limit") or 5)
+    include_sources = args.get("include_sources", args.get("includeSources", True)) is not False
     decisions = [_diagnose_decision(decision) for decision in _recent_decisions(limit)]
+    if not include_sources:
+        decisions = [{key: value for key, value in decision.items() if key != "sources"} for decision in decisions]
     categories: dict[str, int] = {}
     for decision in decisions:
         category = str(decision.get("category") or "unknown")
@@ -1307,11 +1427,24 @@ def research_guard_status(args: dict, **kwargs) -> str:
             "status_version": 2,
             "config": _config_snapshot(),
             "cache": _cache_stats(),
+            "status_buffer": {
+                "entries": len(DECISIONS),
+                "max_entries": MAX_DECISIONS,
+            },
+            "legend": {
+                "researched_and_injected": "Research Guard searched and injected source context into the model prompt.",
+                "manual_research": "Research Guard was explicitly called as a search tool and returned search results.",
+                "researched_but_not_injected": "Research Guard searched, but blocked injection because quality, confidence, or result checks failed.",
+                "checked_and_skipped": "Research Guard inspected the prompt and deliberately did not search.",
+                "failed": "Research Guard tried to run and failed.",
+            },
             "categories": categories,
+            "summary": _summarize_decision_history(decisions),
+            "response_policy": STATUS_RESPONSE_POLICY,
             "decisions": decisions,
             "diagnostics": {
                 "decision_fields": [
-                    "category", "visible_effect", "evidence", "query_debug",
+                    "diagnostic", "category", "visible_effect", "evidence", "query_debug",
                     "confidence", "score", "usable_result_count", "blocked_result_count",
                     "evidence_diversity", "warnings",
                 ],

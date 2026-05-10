@@ -41,6 +41,16 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(guard._should_research("/status"), (False, "slash-command"))
         self.assertEqual(guard._should_research("/help zeig mir die Befehle"), (False, "slash-command"))
 
+    def test_internal_hermes_notes_do_not_trigger_web_search(self):
+        examples = [
+            "[Note: model switch] da?",
+            "accomplished [gateway restart note]",
+            "Gateway restart note",
+        ]
+        for prompt in examples:
+            with self.subTest(prompt=prompt):
+                self.assertEqual(guard._should_research(prompt), (False, "internal-note"))
+
     def test_local_infrastructure_prompts_do_not_trigger_web_search(self):
         examples = [
             "Hast du Zugriff auf Ares?",
@@ -193,6 +203,9 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn('"plugin": "research-guard"', payload)
         self.assertIn('"status_version": 2', payload)
         self.assertIn('"reason": "local-infrastructure"', payload)
+        self.assertIn('"response_policy"', payload)
+        self.assertIn('"status_buffer"', payload)
+        self.assertIn('"summary"', payload)
 
     def test_status_request_context_embeds_diagnostics(self):
         guard.DECISIONS.clear()
@@ -203,7 +216,8 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Research Guard: Diagnose-Status", context)
         self.assertIn('"status_version": 2', context)
         self.assertIn('"reason": "factual-question"', context)
-        self.assertIn("Antworte ausschließlich", context)
+        self.assertIn("Status-JSON BEGIN", context)
+        self.assertIn("Benenne Felder nicht um", context)
 
     def test_status_v2_adds_categories_evidence_and_redacted_prompt_preview(self):
         guard.DECISIONS.clear()
@@ -226,6 +240,9 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
         self.assertEqual(decision["category"], "checked_and_skipped")
         self.assertEqual(decision["visible_effect"], "none")
+        self.assertEqual(decision["diagnostic"]["category"], "checked_and_skipped")
+        self.assertFalse(decision["diagnostic"]["searched"])
+        self.assertIn("skipped research", decision["diagnostic"]["explanation"])
         self.assertIn("action=skipped", decision["evidence"])
         self.assertIn("query_debug", decision)
         self.assertIn("[redacted-email]", decision["prompt_preview"])

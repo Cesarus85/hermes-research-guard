@@ -1,3 +1,12 @@
+## 2026-05-10 - Statusdiagnostik näher an OpenClaw angeglichen
+- **Typ:** feature/fix
+- **Auslöser:** Chat — Hermes gab zwar Statusdaten aus, formte sie aber frei um, hängte eine eigene Zusammenfassung an und zeigte interne Hermes-Notizen als recherchierte Queries.
+- **Änderung:** `research_guard_status` enthält jetzt OpenClaw-nähere Felder: `status_buffer`, `legend`, `summary`, `response_policy` und pro Entscheidung ein verschachteltes `diagnostic` mit `searched`, `injected_context`, `manual_tool`, `skipped`, `failed`, `provider_path`, `explanation` und `evidence`.
+- **Antwortdisziplin:** Status-Injektionen verlangen nun, das JSON nicht frei umzubenennen, nicht mit Quellenlisten zur Vorantwort zu antworten und keine eigene Zusammenfassung wie `Alles aktiv` anzuhängen.
+- **Skip-Regel:** Interne Hermes-/Gateway-Notizen wie `[Note: model switch] da?` und `accomplished [gateway restart note]` werden als `internal-note` übersprungen.
+- **Version:** Plugin-Version auf `0.6.4` erhöht.
+- **Tests:** Coverage für interne Notizen, Status-Policy-Felder und verschachtelte Entscheidungsdiagnostik ergänzt.
+
 ## 2026-05-10 - Status-Intent gegen Quellenpfad abgeschirmt
 - **Typ:** fix
 - **Auslöser:** Chat — `Zeige research guard status` wurde weiterhin wie eine Quellenfrage zur letzten Antwort beantwortet.
