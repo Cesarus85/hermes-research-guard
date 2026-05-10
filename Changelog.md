@@ -1,3 +1,10 @@
+## 2026-05-10 - Update-Installation abgesichert
+- **Typ:** fix
+- **Auslöser:** Chat — Hermes zeigte beim Installieren weiterhin `0.2.0`, obwohl das Repository `0.5.0` enthielt.
+- **Ursache:** Die bisherige README-Kopieranweisung war nur für Erstinstallationen sicher. Bei bestehendem `~/.hermes/plugins/research-guard` kann `cp -R research-guard ~/.hermes/plugins/research-guard` die neue Version in einen Unterordner kopieren und die alte `plugin.yaml` oben liegen lassen.
+- **Änderung:** README enthält jetzt eine update-sichere Installation: altes Plugin-Verzeichnis entfernen, neu kopieren, aktivieren und Gateway neu starten. Zusätzlich wurde `__version__` im Python-Modul ergänzt.
+- **Version:** Plugin-Version auf `0.5.1` erhöht.
+
 ## 2026-05-10 - Debug/Status v2 ergänzt
 - **Typ:** feature
 - **Auslöser:** Chat — Stefan fragte, ob noch ein weiterer kleiner Block sinnvoll ist; gewählt wurde ein risikoarmes Diagnosepaket.

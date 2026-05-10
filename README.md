@@ -27,11 +27,34 @@ This keeps system prompts stable and preserves prompt-cache efficiency.
 
 ## Install
 
-Copy the plugin folder into your Hermes user plugin directory:
+For a fresh install, copy the plugin folder into your Hermes user plugin directory:
 
 ```bash
 mkdir -p ~/.hermes/plugins
-cp -R research-guard ~/.hermes/plugins/research-guard
+cp -R research-guard ~/.hermes/plugins/
+```
+
+For an update from an older version, remove the old plugin directory first. This matters because copying over an existing `~/.hermes/plugins/research-guard` directory can leave the old `plugin.yaml` in place or create a nested `research-guard/research-guard` folder on some systems:
+
+```bash
+hermes plugins disable research-guard
+rm -rf ~/.hermes/plugins/research-guard
+mkdir -p ~/.hermes/plugins
+cp -R research-guard ~/.hermes/plugins/
+hermes plugins enable research-guard
+hermes gateway restart
+```
+
+After installing, verify the manifest that Hermes should read:
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+```
+
+Expected for this release:
+
+```text
+version: 0.5.1
 ```
 
 Enable it:
