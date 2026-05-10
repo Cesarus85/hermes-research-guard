@@ -26,22 +26,46 @@ DEFAULT_LOCAL_MODEL_PATTERNS = (
     "yi-", "codellama", "local", "lmstudio", "mlx", "gguf",
 )
 
+RESEARCH_PREFIX_RE = re.compile(r"^\s*(?:#|/)research\b\s*", re.IGNORECASE)
+NO_RESEARCH_PREFIX_RE = re.compile(r"^\s*(?:#|/)no-research\b\s*", re.IGNORECASE)
+SLASH_COMMAND_RE = re.compile(r"^\s*/(?!research\b|no-research\b)\S+", re.IGNORECASE)
+
 QUESTION_RE = re.compile(
     r"\b(wer|was|wann|wo|warum|wie|welche|welcher|welches|wieviel|wie viel|"
     r"who|what|when|where|why|how|which|compare|vergleich|unterschied|"
-    r"aktuell|current|latest|neueste|version|release|stimmt es|is it true)\b",
+    r"aktuell|current|latest|neueste|version|release|stimmt es|is it true|"
+    r"bürgermeister|oberbürgermeister|landrat|präsident|president|minister)\b",
     re.IGNORECASE,
 )
-SKIP_RE = re.compile(
+LOCAL_OR_PRIVATE_RE = re.compile(
     r"\b(schreib|formuliere|übersetze|translate|rewrite|korrigiere|code|"
     r"python|javascript|typescript|regex|sql|datei|file|ordner|folder|"
-    r"git|commit|diff|log|terminal|ssh|server|meine|mein|unser|unsere|"
-    r"erinnerung|kalender|todo|notiz|memory|vorhin|gesagt)\b",
+    r"workspace|repo|repository|git|commit|diff|log|terminal|shell|bash|zsh|"
+    r"meine|mein|unser|unsere|kalender|todo|notiz|memory|erinner|vorhin|"
+    r"vorher|gesagt|erwähnt|persönlich|bei mir|meine mails)\b",
     re.IGNORECASE,
 )
 CURRENT_RE = re.compile(
     r"\b(aktuell|heute|jetzt|derzeit|neueste|latest|current|news|202[4-9]|"
     r"version|release|preis|price|ceo|präsident|president|minister)\b",
+    re.IGNORECASE,
+)
+LOCAL_INFRA_RE = re.compile(
+    r"\b(zugriff|verbindung|connect|verbinden|erreichbar|erreichen|ping|pingen|ssh)\s+"
+    r"(?:auf|zu|mit)\b"
+    r"|\b(?:hast du|haben wir|kannst du|kommst du|besteht|gibt es)\b[\s\S]*\b"
+    r"(zugriff|verbindung|connect|verbinden|erreichbar|erreichen|ping|pingen|ssh)\b"
+    r"|\b(status|zustand|health)\b[\s\S]*\b(verbindung|server|host|dienst|service|ssh|ping)\b"
+    r"|\bwie\s+(?:ist|is|sind)\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß0-9_-]{2,}\s+"
+    r"(?:erreichbar|verbunden|angebunden|zugänglich|zugaenglich)\b"
+    r"|\bwie\s+(?:erreiche|erreichen|komme|kommen|connecte|verbinde)\s+"
+    r"(?:ich|wir|du)?\s*(?:auf|zu|mit)?\s*[A-ZÄÖÜ][A-Za-zÄÖÜäöüß0-9_-]{2,}\b"
+    r"|\b(?:ip|ip-adresse|adresse|host|hostname|server|port|tailscale|tailscale-ip|lan|lokal|local)\b"
+    r"[\s\S]{0,80}\b(?:von|zu|auf|für|fuer|mit)\b"
+    r"|\b(?:wie|was|welche|welcher|welches|wie lautet|wie ist|wie is)\b"
+    r"[\s\S]{0,80}\b(?:ip|ip-adresse|adresse|host|hostname|server|port|tailscale|tailscale-ip|lan|lokal|local)\b"
+    r"|\b(?:ip|ip-adresse|adresse|host|hostname|server|port|tailscale|tailscale-ip)\b"
+    r"[\s\S]{0,40}\b[A-ZÄÖÜ][A-Za-zÄÖÜäöüß0-9_-]{2,}\b",
     re.IGNORECASE,
 )
 
@@ -71,19 +95,58 @@ def _is_local_or_small_model(model: str | None) -> bool:
     return any(p and p in m for p in needles)
 
 
-def _should_research(message: str) -> tuple[bool, str]:
+def _strip_speech_wrapper(text: str) -> str:
+    current = text.strip()
+    for _ in range(3):
+        next_text = re.sub(
+            r'^\s*(?:audio|voice|speech|stt|transcript|transkript|sprachnachricht)\s*[:：-]\s*["“”„]*([\s\S]*?)["“”„]*\s*$',
+            r"\1",
+            current,
+            flags=re.IGNORECASE,
+        )
+        next_text = re.sub(
+            r'^\s*(?:audio|voice|speech|stt|transcript|transkript|sprachnachricht)\s+'
+            r'(?:message|nachricht|input)\s*[:：-]\s*["“”„]*([\s\S]*?)["“”„]*\s*$',
+            r"\1",
+            next_text,
+            flags=re.IGNORECASE,
+        ).strip()
+        if next_text == current:
+            break
+        current = next_text
+    return current
+
+
+def _clean_message_for_research(message: str) -> str:
     text = (message or "").strip()
+    text = _strip_speech_wrapper(text)
+    text = re.sub(r"\n\s*\[Research Guard:[\s\S]*$", "", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _build_search_query(message: str) -> str:
+    text = _clean_message_for_research(message)
+    text = RESEARCH_PREFIX_RE.sub("", text)
+    text = NO_RESEARCH_PREFIX_RE.sub("", text)
+    return re.sub(r"\s+", " ", text).strip()[:240]
+
+
+def _should_research(message: str) -> tuple[bool, str]:
+    text = _clean_message_for_research(message)
     if not text:
         return False, "empty"
-    lowered = text.lower()
-    if "#no-research" in lowered or "/no-research" in lowered:
+    if NO_RESEARCH_PREFIX_RE.match(text):
         return False, "opt-out"
-    if "#research" in lowered or "/research" in lowered:
+    if RESEARCH_PREFIX_RE.match(text):
         return True, "explicit"
+    if SLASH_COMMAND_RE.match(text):
+        return False, "slash-command"
     if len(text) < 12:
         return False, "too-short"
-    if SKIP_RE.search(text) and not CURRENT_RE.search(text):
-        return False, "looks-local-or-writing-coding"
+    if LOCAL_INFRA_RE.search(text):
+        return False, "local-infrastructure"
+    if LOCAL_OR_PRIVATE_RE.search(text) and not CURRENT_RE.search(text):
+        return False, "looks-local-personal-writing-coding"
     if CURRENT_RE.search(text):
         return True, "current-facts"
     if QUESTION_RE.search(text) and text.endswith(("?", "？")):
@@ -240,8 +303,11 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
     should, reason = _should_research(user_message)
     if not should:
         return None
+    query = _build_search_query(user_message)
+    if not query:
+        return None
     limit = _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10)
-    payload = _search(user_message, limit)
+    payload = _search(query, limit)
     context = _format_context(payload, reason, model)
     if not context:
         logger.info("research-guard search skipped/failed: %s", payload.get("error"))
