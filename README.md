@@ -14,7 +14,9 @@ It is meant for setups where models like Qwen, Llama, Mistral, Gemma, Phi, or Ol
 - Cleans common speech/STT wrappers such as `Audio:`, `Voice:`, `Transkript:`, and `Sprachnachricht:` before classification and search query building.
 - Searches the web before the model answers.
 - Injects compact source context into the user message, not the system prompt.
-- Exposes a manual `research_guard_search` tool for debugging/manual use.
+- Tells the model to cite Research Guard sources when context was injected.
+- Keeps a small in-memory decision buffer so source follow-ups such as `Wo hast du die Info her?` can be answered from the previous Research Guard decision instead of triggering a fresh search for the follow-up itself.
+- Exposes manual `research_guard_search` and `research_guard_status` tools for debugging/manual use.
 
 This keeps system prompts stable and preserves prompt-cache efficiency.
 
@@ -78,6 +80,28 @@ Skip research:
 ```
 
 Other slash commands, such as `/status` or `/help`, are skipped by default unless `/research` explicitly forces research.
+
+## Source follow-ups
+
+Hermes injects plugin context only ephemerally into the current user message. That means the raw Research Guard source block is not persisted in the normal conversation history. To make follow-up questions reliable, Research Guard now stores recent decisions in memory.
+
+When the next user turn asks where an answer came from, for example:
+
+```text
+Wo hast du die Info her?
+Was waren deine Quellen?
+Wie kam die Antwort zustande?
+```
+
+Research Guard does not search those follow-up words. Instead, it injects a compact `[Research Guard: Quellenstatus]` block with the last research action, query, provider, and stored URLs. The model is told not to claim the previous factual answer came only from training data when Research Guard context was injected.
+
+You can also ask the model to call:
+
+```text
+research_guard_status
+```
+
+That tool returns the recent decision buffer as JSON.
 
 ## Privacy boundaries
 
