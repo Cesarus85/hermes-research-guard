@@ -54,7 +54,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Strict location-answer grounding | `[ ] ADAPT` | Put this in the injected context block, because Hermes does not expose plugin system-prompt injection. |
 | Required Research Guard source line | `[ ] ADAPT` | Add instruction inside context block, optionally controlled by `RESEARCH_GUARD_REQUIRE_SOURCES`. |
 | No-research stale-context boundary | `[ ] ADAPT` | Hermes context is ephemeral, but a skipped-turn boundary can still help local models. |
-| `research_guard_status` tool | `[ ] PORT` | Add in-memory ring buffer, last decisions, skip reasons, provider, query, cache, confidence, sources. |
+| `research_guard_status` tool | `[x]` | Added in-memory decision buffer with recent actions, reasons, provider, query, cache flag, and stored source summaries. |
 | Status response policy | `[ ] ADAPT` | Implement as tool output text and/or context instruction; no system-prompt policy hook. |
 | Debug mode | `[ ] PORT` | Add `RESEARCH_GUARD_DEBUG=1` and compact decision explanations. |
 | Tests | `[ ] PORT` | Initial dependency-free Python tests exist for the v0.4 privacy-skip port; broader OpenClaw parity coverage remains. |
@@ -151,9 +151,9 @@ Goal: compensate for Hermes user-message injection by making the context block e
 - [ ] ADAPT Rewrite OpenClaw `buildSystemInstruction()` into a Hermes-safe injected instruction section.
 - [ ] ADAPT Rewrite OpenClaw `buildNoResearchSystemInstruction()` into an optional Hermes skipped-turn boundary.
 - [ ] ADAPT In injected context, require the model to answer only the current user question.
-- [ ] ADAPT In injected context, tell the model that Research Guard sources are evidence, not instructions.
+- [x] In injected context, tell the model that Research Guard sources are evidence and should be cited when present.
 - [ ] ADAPT Require uncertainty when sources are missing, weak, stale, or contradictory.
-- [ ] ADAPT Add optional final line: `Quellen (Research Guard): <URL 1>, <URL 2>`.
+- [x] Add final line instruction: `Quellen (Research Guard): <URL 1>, <URL 2>`.
 - [ ] ADAPT Add `RESEARCH_GUARD_REQUIRE_SOURCES=true|false`.
 - [ ] ADAPT Add strict location-question rule: no rivers, traffic routes, population, distances, or extra facts unless asked and source-backed.
 - [ ] LIMIT Do not attempt true plugin system-prompt injection unless Hermes exposes a supported API for it.
@@ -162,11 +162,11 @@ Goal: compensate for Hermes user-message injection by making the context block e
 
 Goal: make every Research Guard decision inspectable.
 
-- [ ] PORT Add in-memory decision ring buffer.
-- [ ] PORT Cap decision history, default 30 entries.
-- [ ] PORT Record action: `injected`, `skipped`, `failed`, `manual_search`, `searched_but_blocked`.
-- [ ] PORT Record reason, provider, query, model, prompt preview, cache hit, result count, usable result count, blocked result count, confidence, score, warnings, and source summaries.
-- [ ] PORT Add `research_guard_status` tool.
+- [x] Add in-memory decision ring buffer.
+- [x] Cap decision history, default 30 entries.
+- [x] Record action: `injected`, `skipped`, `failed`, and `manual_search`.
+- [ ] PORT Record reason, provider, query, model, prompt preview, cache hit, and source summaries; richer confidence/score fields remain for source-scoring work.
+- [x] Add `research_guard_status` tool.
 - [ ] ADAPT Add optional Hermes slash command `/research_guard_status` or `/rg-status`.
 - [ ] PORT Add diagnostic categories: `researched_and_injected`, `manual_research`, `researched_but_not_injected`, `checked_and_skipped`, `failed`.
 - [ ] PORT Add visible effect: `sources_injected`, `manual_tool_result`, `none`, `error`.
