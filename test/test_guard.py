@@ -72,6 +72,39 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertTrue(guard._should_research("Wer ist aktuell Präsident von Frankreich?")[0])
         self.assertTrue(guard._should_research("Welche Version von Python ist aktuell?")[0])
 
+    def test_source_followups_do_not_trigger_a_fresh_web_search(self):
+        self.assertEqual(guard._should_research("Wo hast du die Info her?"), (False, "source-followup"))
+        self.assertEqual(guard._should_research("Was waren deine Quellen?"), (False, "source-followup"))
+
+    def test_source_followup_context_uses_last_research_decision(self):
+        guard.DECISIONS.clear()
+        guard._record_decision(
+            "injected",
+            "current-facts",
+            provider="duckduckgo-html",
+            query="Bürgermeister Forchheim",
+            sources=[
+                {
+                    "title": "Stadt Forchheim Bürgermeister",
+                    "url": "https://www.forchheim.de/rathaus-service/",
+                    "snippet": "Offizielle Stadtverwaltung.",
+                }
+            ],
+        )
+
+        context = guard._format_source_followup_context()
+        self.assertIn("Research Guard: Quellenstatus", context)
+        self.assertIn("Bürgermeister Forchheim", context)
+        self.assertIn("https://www.forchheim.de/rathaus-service/", context)
+        self.assertIn("NICHT", context)
+
+    def test_status_tool_reports_recent_decisions(self):
+        guard.DECISIONS.clear()
+        guard._record_decision("skipped", "local-infrastructure", model="qwen")
+        payload = guard.research_guard_status({"limit": 1})
+        self.assertIn('"plugin": "research-guard"', payload)
+        self.assertIn('"reason": "local-infrastructure"', payload)
+
 
 if __name__ == "__main__":
     unittest.main()
