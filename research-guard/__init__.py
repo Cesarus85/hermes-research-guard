@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus, unquote, urlparse, parse_qs
@@ -21,6 +22,8 @@ from urllib.request import Request, urlopen
 logger = logging.getLogger(__name__)
 
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
+MAX_DECISIONS = 30
+DECISIONS: list[dict[str, Any]] = []
 DEFAULT_LOCAL_MODEL_PATTERNS = (
     "qwen", "ollama", "llama", "mistral", "gemma", "phi", "deepseek",
     "yi-", "codellama", "local", "lmstudio", "mlx", "gguf",
@@ -29,6 +32,12 @@ DEFAULT_LOCAL_MODEL_PATTERNS = (
 RESEARCH_PREFIX_RE = re.compile(r"^\s*(?:#|/)research\b\s*", re.IGNORECASE)
 NO_RESEARCH_PREFIX_RE = re.compile(r"^\s*(?:#|/)no-research\b\s*", re.IGNORECASE)
 SLASH_COMMAND_RE = re.compile(r"^\s*/(?!research\b|no-research\b)\S+", re.IGNORECASE)
+SOURCE_FOLLOWUP_RE = re.compile(
+    r"\b(woher|wo hast du|wo habt ihr|quelle|quellen|beleg|belege|"
+    r"info her|information her|zustande|recherchiert|gesucht|research[-_\s]*guard|"
+    r"source|sources|where.*source|how.*answer)\b",
+    re.IGNORECASE,
+)
 
 QUESTION_RE = re.compile(
     r"\b(wer|was|wann|wo|warum|wie|welche|welcher|welches|wieviel|wie viel|"
@@ -131,6 +140,13 @@ def _build_search_query(message: str) -> str:
     return re.sub(r"\s+", " ", text).strip()[:240]
 
 
+def _is_source_followup(message: str) -> bool:
+    text = _clean_message_for_research(message)
+    if not text:
+        return False
+    return bool(SOURCE_FOLLOWUP_RE.search(text))
+
+
 def _should_research(message: str) -> tuple[bool, str]:
     text = _clean_message_for_research(message)
     if not text:
@@ -139,6 +155,8 @@ def _should_research(message: str) -> tuple[bool, str]:
         return False, "opt-out"
     if RESEARCH_PREFIX_RE.match(text):
         return True, "explicit"
+    if _is_source_followup(text):
+        return False, "source-followup"
     if SLASH_COMMAND_RE.match(text):
         return False, "slash-command"
     if len(text) < 12:
@@ -154,6 +172,78 @@ def _should_research(message: str) -> tuple[bool, str]:
     if QUESTION_RE.search(text) and len(text) < 220:
         return True, "general-knowledge"
     return False, "no-trigger"
+
+
+def _record_decision(action: str, reason: str, **details: Any) -> dict[str, Any]:
+    decision = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "reason": reason,
+        **details,
+    }
+    DECISIONS.append(decision)
+    del DECISIONS[:-MAX_DECISIONS]
+    return decision
+
+
+def _recent_decisions(limit: int = 5) -> list[dict[str, Any]]:
+    limit = max(1, min(20, int(limit or 5)))
+    return list(reversed(DECISIONS[-limit:]))
+
+
+def _last_research_decision() -> dict[str, Any] | None:
+    for decision in reversed(DECISIONS):
+        if decision.get("action") in {"injected", "manual_search"}:
+            return decision
+    return None
+
+
+def _source_summaries(results: list[dict[str, Any]], limit: int = 5) -> list[dict[str, str]]:
+    summaries: list[dict[str, str]] = []
+    for item in results[:limit]:
+        summaries.append({
+            "title": str(item.get("title") or "Untitled")[:180],
+            "url": str(item.get("url") or "")[:300],
+            "snippet": str(item.get("snippet") or "")[:300],
+        })
+    return summaries
+
+
+def _format_source_followup_context() -> str:
+    decision = _last_research_decision()
+    if not decision:
+        return "\n".join([
+            "[Research Guard: Quellenstatus]",
+            "Der Nutzer fragt nach der Herkunft einer früheren Antwort.",
+            "Es liegt in diesem Hermes-Prozess keine gespeicherte Research-Guard-Entscheidung mit Quellen vor.",
+            "Antworte transparent, dass du keine Research-Guard-Quellen im aktuellen Statuspuffer findest. Behaupte keine neuen Webquellen.",
+            "[/Research Guard: Quellenstatus]",
+        ])
+
+    source_lines = []
+    for idx, item in enumerate(decision.get("sources") or [], 1):
+        source_lines.append(f"{idx}. {item.get('title') or 'Untitled'}")
+        source_lines.append(f"   URL: {item.get('url') or ''}")
+        snippet = item.get("snippet")
+        if snippet:
+            source_lines.append(f"   Auszug: {snippet}")
+    if not source_lines:
+        source_lines.append("Keine Quellen im Statuspuffer gespeichert.")
+
+    return "\n".join([
+        "[Research Guard: Quellenstatus]",
+        "Der Nutzer fragt nach der Herkunft oder den Quellen der vorherigen Antwort.",
+        "Beantworte diese aktuelle Frage anhand dieses Research-Guard-Status. Suche nicht neu.",
+        "Wenn action=injected oder manual_search ist, behaupte NICHT, die vorherige Antwort sei nur aus Trainingswissen entstanden.",
+        f"Letzte Research-Guard-Aktion: {decision.get('action')}",
+        f"Grund: {decision.get('reason')}",
+        f"Provider: {decision.get('provider') or 'unknown'}",
+        f"Query: {decision.get('query') or 'unknown'}",
+        "Quellen der letzten Research-Guard-Recherche:",
+        *source_lines,
+        "Antworte kurz und nenne Research Guard sowie 1-2 passende URLs.",
+        "[/Research Guard: Quellenstatus]",
+    ])
 
 
 def _load_cache() -> dict[str, Any]:
@@ -271,7 +361,11 @@ def _format_context(payload: dict[str, Any], reason: str, model: str | None) -> 
     lines = [
         "[Research Guard: automatische Webrecherche vor Antwort]",
         f"Auslöser: {reason}; Modell: {model or 'unknown'}; Provider: {payload.get('provider')}; Query: {payload.get('query')}",
-        "Nutze die Quellen unten für faktische Aussagen. Wenn sie nicht reichen oder widersprüchlich sind, sag das klar. Erfinde keine Details.",
+        "Diese Quellen wurden automatisch durch Research Guard für die aktuelle Nutzerfrage recherchiert.",
+        "Nutze die Quellen unten für faktische Aussagen. Antworte nicht nur aus Trainingswissen, wenn diese Quellen passen.",
+        "Wenn der Nutzer später fragt, woher die Info stammt oder wie die Antwort zustande kam, nenne Research Guard und die URLs aus diesem Kontext.",
+        "Wenn die Quellen nicht reichen oder widersprüchlich sind, sag das klar. Erfinde keine Details.",
+        "Füge am Ende eine kurze Zeile `Quellen (Research Guard): <URL 1>, <URL 2>` an, außer der Nutzer verlangt ausdrücklich keine Quellen.",
         "",
         "Quellen:",
     ]
@@ -291,27 +385,78 @@ def research_guard_search(args: dict, **kwargs) -> str:
     limit = int(args.get("limit") or _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10))
     if not query:
         return json.dumps({"error": "query is required"}, ensure_ascii=False)
-    return json.dumps(_search(query, max(1, min(limit, 10))), ensure_ascii=False, indent=2)
+    payload = _search(query, max(1, min(limit, 10)))
+    _record_decision(
+        "manual_search",
+        "manual research_guard_search tool call",
+        provider=payload.get("provider"),
+        query=payload.get("query") or query,
+        success=bool(payload.get("success")),
+        sources=_source_summaries(payload.get("results") or []),
+        error=payload.get("error"),
+    )
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def research_guard_status(args: dict, **kwargs) -> str:
+    """Manual tool: show recent Research Guard decisions."""
+    del kwargs
+    limit = int(args.get("limit") or 5)
+    return json.dumps(
+        {
+            "plugin": "research-guard",
+            "decisions": _recent_decisions(limit),
+            "note": (
+                "Injected Research Guard context is ephemeral in Hermes. "
+                "Use this status to explain whether the previous factual answer used Research Guard sources."
+            ),
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 def pre_llm_research_guard(session_id: str, user_message: str, model: str, platform: str, **kwargs):
     del session_id, platform, kwargs
     if not _env_bool("RESEARCH_GUARD_ENABLED", True):
+        _record_decision("skipped", "plugin disabled", model=model)
         return None
     if not _is_local_or_small_model(model):
+        _record_decision("skipped", "non-local model gate", model=model)
         return None
+    if _is_source_followup(user_message):
+        return {"context": _format_source_followup_context()}
     should, reason = _should_research(user_message)
     if not should:
+        _record_decision("skipped", reason, model=model, prompt=_clean_message_for_research(user_message)[:180])
         return None
     query = _build_search_query(user_message)
     if not query:
+        _record_decision("skipped", "empty query after cleanup", model=model)
         return None
     limit = _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10)
     payload = _search(query, limit)
     context = _format_context(payload, reason, model)
     if not context:
+        _record_decision(
+            "failed",
+            "search failed or returned no injectable context",
+            model=model,
+            provider=payload.get("provider"),
+            query=payload.get("query") or query,
+            error=payload.get("error"),
+        )
         logger.info("research-guard search skipped/failed: %s", payload.get("error"))
         return None
+    _record_decision(
+        "injected",
+        reason,
+        model=model,
+        provider=payload.get("provider"),
+        query=payload.get("query") or query,
+        cached=payload.get("cached"),
+        sources=_source_summaries(payload.get("results") or []),
+    )
     return {"context": context}
 
 
@@ -328,6 +473,17 @@ TOOL_SCHEMA = {
     },
 }
 
+STATUS_TOOL_SCHEMA = {
+    "name": "research_guard_status",
+    "description": "Show recent Research Guard decisions, including whether context was injected, the query, provider, and stored sources. Use this when the user asks where a factual answer came from or how it was produced.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer", "description": "Max recent decisions, 1-20", "default": 5},
+        },
+    },
+}
+
 
 def register(ctx):
     ctx.register_hook("pre_llm_call", pre_llm_research_guard)
@@ -337,5 +493,13 @@ def register(ctx):
         schema=TOOL_SCHEMA,
         handler=research_guard_search,
         emoji="🛡️",
+        max_result_size_chars=50_000,
+    )
+    ctx.register_tool(
+        name="research_guard_status",
+        toolset="research_guard",
+        schema=STATUS_TOOL_SCHEMA,
+        handler=research_guard_status,
+        emoji="🧭",
         max_result_size_chars=50_000,
     )
