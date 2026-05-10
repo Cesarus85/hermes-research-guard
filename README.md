@@ -10,6 +10,8 @@ It is meant for setups where models like Qwen, Llama, Mistral, Gemma, Phi, or Ol
 - Detects local/small models by model name heuristics.
 - Detects factual, general-knowledge, and current-information questions.
 - Skips likely local, personal, coding, file, terminal, and writing tasks.
+- Skips local infrastructure prompts such as IP addresses, hosts, ports, SSH, ping, Tailscale, reachability, and service-status questions.
+- Cleans common speech/STT wrappers such as `Audio:`, `Voice:`, `Transkript:`, and `Sprachnachricht:` before classification and search query building.
 - Searches the web before the model answers.
 - Injects compact source context into the user message, not the system prompt.
 - Exposes a manual `research_guard_search` tool for debugging/manual use.
@@ -65,12 +67,29 @@ Force research:
 
 ```text
 #research Wer ist aktuell Präsident von Frankreich?
+/research Wer ist aktuell Präsident von Frankreich?
 ```
 
 Skip research:
 
 ```text
 #no-research Wer ist aktuell Präsident von Frankreich?
+/no-research Wer ist aktuell Präsident von Frankreich?
+```
+
+Other slash commands, such as `/status` or `/help`, are skipped by default unless `/research` explicitly forces research.
+
+## Privacy boundaries
+
+Research Guard should not send local/private operational questions to external web search. Prompts about internal machines, IP addresses, hostnames, SSH, ping, Tailscale, local reachability, service status, files, terminal commands, memory, notes, calendars, or personal context are deliberately skipped unless the user explicitly forces research.
+
+Examples that should skip web search:
+
+```text
+Welche Tailscale-IP hat Goliath?
+Was ist der SSH-Port von Ares?
+Hast du Zugriff auf Ares?
+Wie ist der Status der Verbindung zu Goliath?
 ```
 
 ## Search backend
@@ -82,6 +101,12 @@ If that is unavailable or misconfigured, it falls back to DuckDuckGo's HTML endp
 ## Development notes
 
 The plugin intentionally avoids modifying the system prompt. Hermes injects hook context into the user-message context via `pre_llm_call`, which is friendlier to prompt caching and safer than dynamically rewriting system instructions.
+
+Run the current dependency-free tests with:
+
+```bash
+python3 -m unittest discover -s test -p 'test_*.py'
+```
 
 ## License
 
