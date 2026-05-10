@@ -13,7 +13,9 @@ It is meant for setups where models like Qwen, Llama, Mistral, Gemma, Phi, or Ol
 - Skips local infrastructure prompts such as IP addresses, hosts, ports, SSH, ping, Tailscale, reachability, and service-status questions.
 - Cleans common speech/STT wrappers such as `Audio:`, `Voice:`, `Transkript:`, and `Sprachnachricht:` before classification and search query building.
 - Searches the web before the model answers.
+- Scores sources before injection: official, municipal, government, documentation, vendor/project, and reference sources are preferred; aggregators, forums/social pages, paywalls, listicles, duplicates, and repeated same-domain hits are downgraded.
 - Injects compact source context into the user message, not the system prompt.
+- Adds a compact confidence/evidence-diversity summary to the injected context.
 - Tells the model to cite Research Guard sources when context was injected.
 - Keeps a small in-memory decision buffer so source follow-ups such as `Wo hast du die Info her?` can be answered from the previous Research Guard decision instead of triggering a fresh search for the follow-up itself.
 - Detects context/opinion follow-ups such as `Was hältst du davon?` and reuses the last Research Guard topic instead of searching the literal follow-up phrase.
@@ -57,12 +59,39 @@ Optional environment variables:
 | `RESEARCH_GUARD_MAX_RESULTS` | `5` | Search results to inject, clamped 1-10 |
 | `RESEARCH_GUARD_TIMEOUT` | `8` | DuckDuckGo fallback timeout in seconds |
 | `RESEARCH_GUARD_CACHE_TTL_SECONDS` | `3600` | Query cache TTL |
+| `RESEARCH_GUARD_PREFERRED_DOMAINS` | empty | Comma-separated domains to boost, e.g. `forchheim.de,bayern.de` |
+| `RESEARCH_GUARD_BLOCKED_DOMAINS` | empty | Comma-separated domains to exclude from injected sources |
+| `RESEARCH_GUARD_MIN_CONFIDENCE` | `low` | Minimum source confidence required for injection: `low`, `medium`, or `high` |
+| `RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES` | `false` | Downgrade confidence when fewer than two usable/unique source domains pass scoring |
 
 Built-in local model patterns include:
 
 ```text
 qwen, ollama, llama, mistral, gemma, phi, deepseek, yi-, codellama, local, lmstudio, mlx, gguf
 ```
+
+## Source quality
+
+Research Guard now ranks and annotates search results before injecting them. The goal is to give Hermes the best available evidence first, not just the first search results.
+
+Boosted signals include:
+
+```text
+preferred-domain, government-source, municipal-source, documentation-source,
+primary-project-source, vendor-source, reference-source, official-context
+```
+
+Warnings include:
+
+```text
+Forum or social source, Likely aggregator or SEO-heavy source,
+Possible paywall or snippet-only source, Commercial or listicle-style source,
+Undated source for current-information query, Possibly stale source
+```
+
+The injected context includes a `Quellenbewertung:` line with confidence, score, usable-source count, evidence diversity, unique domains, and duplicate hints. For local/municipal questions such as mayors or population, city/municipal pages are preferred when their title or snippet indicates an official administration source.
+
+For location questions such as `Wo liegt Forchheim?`, the context now explicitly tells the model to answer only the location/administrative classification and avoid extra rivers, traffic routes, population numbers, distances, or unrelated details unless the user asked and the sources support them.
 
 ## Manual opt-in / opt-out
 

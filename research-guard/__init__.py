@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
+CONFIDENCE_RANK = {"low": 1, "medium": 2, "high": 3}
 DEFAULT_LOCAL_MODEL_PATTERNS = (
     "qwen", "ollama", "llama", "mistral", "gemma", "phi", "deepseek",
     "yi-", "codellama", "local", "lmstudio", "mlx", "gguf",
@@ -105,6 +106,12 @@ def _env_int(name: str, default: int, lo: int, hi: int) -> int:
         return max(lo, min(hi, int(os.getenv(name, str(default)))))
     except Exception:
         return default
+
+
+def _env_list(name: str) -> list[str]:
+    value = os.getenv(name, "")
+    items = [_normalize_hostname(part) for part in value.split(",")]
+    return [item for item in items if item]
 
 
 def _is_local_or_small_model(model: str | None) -> bool:
@@ -221,15 +228,341 @@ def _last_research_decision() -> dict[str, Any] | None:
     return None
 
 
-def _source_summaries(results: list[dict[str, Any]], limit: int = 5) -> list[dict[str, str]]:
-    summaries: list[dict[str, str]] = []
+def _source_summaries(results: list[dict[str, Any]], limit: int = 5) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
     for item in results[:limit]:
-        summaries.append({
+        summary = {
             "title": str(item.get("title") or "Untitled")[:180],
             "url": str(item.get("url") or "")[:300],
             "snippet": str(item.get("snippet") or "")[:300],
-        })
+        }
+        quality = item.get("quality")
+        if isinstance(quality, dict):
+            summary["quality"] = {
+                "score": quality.get("score"),
+                "confidence": quality.get("confidence"),
+                "domain": quality.get("domain"),
+                "signals": quality.get("signals") or [],
+                "warnings": quality.get("warnings") or [],
+            }
+        summaries.append(summary)
     return summaries
+
+
+def _normalize_hostname(value: str) -> str:
+    return (
+        value.lower()
+        .replace("https://", "")
+        .replace("http://", "")
+        .removeprefix("www.")
+        .split("/")[0]
+        .strip()
+    )
+
+
+def _domain_matches_any(domain: str, candidates: list[str]) -> bool:
+    return any(domain == candidate or domain.endswith(f".{candidate}") for candidate in candidates)
+
+
+def _confidence_from_score(score: int) -> str:
+    if score >= 75:
+        return "high"
+    if score >= 50:
+        return "medium"
+    return "low"
+
+
+def _parse_confidence(value: str | None, default: str = "low") -> str:
+    value = (value or "").strip().lower()
+    return value if value in CONFIDENCE_RANK else default
+
+
+def _meets_min_confidence(confidence: str, minimum: str) -> bool:
+    return CONFIDENCE_RANK.get(confidence, 1) >= CONFIDENCE_RANK.get(minimum, 1)
+
+
+def _source_site_key(domain: str) -> str:
+    parts = [part for part in domain.split(".") if part]
+    if len(parts) <= 2:
+        return domain
+    last_two = ".".join(parts[-2:])
+    last_three = ".".join(parts[-3:])
+    if re.match(r"^(co|com|gov|ac|org|net)\.[a-z]{2}$", last_two, flags=re.IGNORECASE):
+        return last_three
+    return last_two
+
+
+def _canonical_source_key(value: str) -> str:
+    try:
+        parsed = urlparse(value)
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/").lower()
+    except Exception:
+        return value.strip().rstrip("/").lower()
+
+
+def _content_signature(item: dict[str, Any]) -> str:
+    text = f"{item.get('title') or ''} {item.get('snippet') or ''}".lower()
+    text = re.sub(r"\b(?:the|a|an|und|oder|der|die|das|ein|eine|von|zu|im|in|am|auf|for|with|about)\b", " ", text)
+    text = re.sub(r"[^a-z0-9äöüß]+", " ", text, flags=re.IGNORECASE)
+    return " ".join(text.split()[:12])
+
+
+def _is_government_domain(domain: str) -> bool:
+    return (
+        domain.endswith(".gov")
+        or domain.endswith(".gov.uk")
+        or domain.endswith(".gov.au")
+        or domain.endswith(".gouv.fr")
+        or domain.endswith(".bund.de")
+        or domain.endswith(".deutschland.de")
+        or ".bund." in f".{domain}."
+        or ".bundesregierung." in f".{domain}."
+    )
+
+
+def _is_forum_or_social_domain(domain: str) -> bool:
+    return _domain_matches_any(domain, [
+        "reddit.com", "quora.com", "stackoverflow.com", "stackexchange.com",
+        "x.com", "twitter.com", "facebook.com", "instagram.com", "tiktok.com",
+    ])
+
+
+def _is_weak_aggregator_domain(domain: str, text: str) -> bool:
+    if re.search(r"\b(scraper|mirror|download free|apk|alternatives? to|top alternatives)\b", text, flags=re.IGNORECASE):
+        return True
+    return _domain_matches_any(domain, [
+        "softonic.com", "alternativeto.net", "filehippo.com", "uptodown.com",
+        "justwatch.com", "bild.de",
+    ])
+
+
+def _is_documentation_source(domain: str, text: str) -> bool:
+    return (
+        bool(re.search(r"(^|\.)docs?\.|(^|\.)developer\.|(^|\.)dev\.|(^|\.)api\.|(^|\.)learn\.", domain))
+        or bool(re.search(r"\b(documentation|docs|api reference|developer guide|changelog|release notes?)\b", text, flags=re.IGNORECASE))
+    )
+
+
+def _is_primary_project_source(domain: str, text: str) -> bool:
+    return (
+        domain in {"github.com", "gitlab.com", "npmjs.com", "pypi.org"}
+        or bool(re.search(r"\b(official|offiziell|project page|homepage)\b", text, flags=re.IGNORECASE))
+    )
+
+
+def _is_municipal_source(domain: str, text: str, query: str) -> bool:
+    local_fact_query = re.search(
+        r"\b(bürgermeister|oberbürgermeister|landrat|einwohner|einwohnerzahl|bevölkerung|rathaus|gemeinde|stadt|landkreis|mayor|population)\b",
+        query,
+        flags=re.IGNORECASE,
+    )
+    if not local_fact_query or _is_forum_or_social_domain(domain) or _is_weak_aggregator_domain(domain, text):
+        return False
+    return bool(re.search(r"\b(stadt|gemeinde|landkreis|rathaus|verwaltung|official city|city hall|municipal|bürgermeister|oberbürgermeister)\b", text, flags=re.IGNORECASE))
+
+
+def _is_vendor_or_project_source(domain: str, text: str, query: str) -> bool:
+    software_query = re.search(r"\b(release|changelog|version|pricing|preise|preis|available|verfügbar|docs?|api|software|package|npm|pypi)\b", query, flags=re.IGNORECASE)
+    if not software_query or _is_weak_aggregator_domain(domain, text) or _is_forum_or_social_domain(domain):
+        return False
+    return _is_documentation_source(domain, text) or _is_primary_project_source(domain, text) or bool(
+        re.search(r"\b(official|offiziell|vendor|pricing|release notes?|changelog|documentation|download)\b", text, flags=re.IGNORECASE)
+    )
+
+
+def _is_freshness_sensitive_query(query: str) -> bool:
+    return bool(re.search(
+        r"\b(aktuell|aktuelle|heute|neuigkeiten|news|latest|recent|update|release|changelog|version|preis|preise|pricing|verfügbar|bürgermeister|oberbürgermeister|landrat|präsident|ministerpräsident|mayor|president|prime minister|einwohner|einwohnerzahl|bevölkerung|population)\b",
+        query,
+        flags=re.IGNORECASE,
+    ))
+
+
+def _parse_source_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    numeric = re.search(r"\b(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\b", value)
+    if numeric:
+        return datetime(int(numeric.group(1)), int(numeric.group(2)), int(numeric.group(3)), tzinfo=timezone.utc)
+    german = re.search(r"\b(0?[1-9]|[12]\d|3[01])\.\s*(0?[1-9]|1[0-2])\.\s*(20\d{2})\b", value)
+    if german:
+        return datetime(int(german.group(3)), int(german.group(2)), int(german.group(1)), tzinfo=timezone.utc)
+    return None
+
+
+def _score_freshness(item: dict[str, Any], text: str) -> tuple[int, list[str], list[str]]:
+    published_at = _parse_source_date(str(item.get("age") or "")) or _parse_source_date(text)
+    if not published_at:
+        return -8, [], ["Undated source for current-information query."]
+    age_days = max(0, int((datetime.now(timezone.utc) - published_at).total_seconds() // 86_400))
+    if age_days <= 120:
+        return 12, ["fresh-source"], []
+    if age_days <= 548:
+        return 5, ["recent-source"], []
+    return -14, [], ["Possibly stale source for current-information query."]
+
+
+def _score_research_result(item: dict[str, Any], query: str, preferred_domains: list[str], blocked_domains: list[str]) -> dict[str, Any]:
+    signals: list[str] = []
+    warnings: list[str] = []
+    url = str(item.get("url") or "")
+    parsed = urlparse(url)
+    domain = _normalize_hostname(parsed.netloc)
+    if not parsed.scheme.startswith("http") or not domain:
+        return {"score": 0, "confidence": "low", "domain": domain or "invalid-url", "signals": ["invalid-url"], "warnings": ["Invalid or unsupported source URL."]}
+    if _domain_matches_any(domain, blocked_domains):
+        return {"score": 0, "confidence": "low", "domain": domain, "signals": ["blocked-domain"], "warnings": [f"Blocked domain: {domain}."]}
+
+    text = f"{item.get('title') or ''} {item.get('snippet') or ''}".lower()
+    score = 50
+    if _domain_matches_any(domain, preferred_domains):
+        score += 35
+        signals.append("preferred-domain")
+    if _is_government_domain(domain):
+        score += 25
+        signals.append("government-source")
+    if _is_municipal_source(domain, text, query):
+        score += 24
+        signals.append("municipal-source")
+    if _is_documentation_source(domain, text):
+        score += 20
+        signals.append("documentation-source")
+    if _is_primary_project_source(domain, text):
+        score += 15
+        signals.append("primary-project-source")
+    if _is_vendor_or_project_source(domain, text, query):
+        score += 14
+        signals.append("vendor-source")
+    if domain.endswith("wikipedia.org") or domain.endswith("wikidata.org"):
+        score += 15 if domain.endswith("wikidata.org") else 10
+        signals.append("reference-source")
+    if re.search(r"\b(official|offiziell|official site|homepage|documentation|docs|changelog|release notes?|pricing|preise)\b", text, flags=re.IGNORECASE):
+        score += 8
+        signals.append("official-context")
+
+    if not str(item.get("snippet") or "").strip():
+        score -= 8
+        warnings.append("Missing snippet.")
+    if _is_forum_or_social_domain(domain):
+        score -= 18
+        warnings.append("Forum or social source.")
+    if _is_weak_aggregator_domain(domain, text):
+        score -= 20
+        warnings.append("Likely aggregator or SEO-heavy source.")
+    if re.search(r"\b(subscribe|subscription|paywall|sign in to continue|members only|premium)\b", text, flags=re.IGNORECASE):
+        score -= 15
+        warnings.append("Possible paywall or snippet-only source.")
+    if re.search(r"\b(top\s+\d+|best\b|coupon|deals?|buy now|vergleich der besten|testsieger)\b", text, flags=re.IGNORECASE):
+        score -= 12
+        warnings.append("Commercial or listicle-style source.")
+    if _is_freshness_sensitive_query(query):
+        delta, fresh_signals, fresh_warnings = _score_freshness(item, text)
+        score += delta
+        signals.extend(fresh_signals)
+        warnings.extend(fresh_warnings)
+
+    score = max(1, min(100, round(score)))
+    return {
+        "score": score,
+        "confidence": _confidence_from_score(score),
+        "domain": domain,
+        "signals": sorted(set(signals)),
+        "warnings": sorted(set(warnings)),
+    }
+
+
+def _score_research_results(results: list[dict[str, Any]], query: str) -> dict[str, Any]:
+    preferred_domains = _env_list("RESEARCH_GUARD_PREFERRED_DOMAINS")
+    blocked_domains = _env_list("RESEARCH_GUARD_BLOCKED_DOMAINS")
+    scored = []
+    blocked = []
+    for item in results:
+        quality = _score_research_result(item, query, preferred_domains, blocked_domains)
+        result = {**item, "quality": quality}
+        if quality["score"] <= 0:
+            blocked.append(result)
+        else:
+            scored.append(result)
+
+    canonical_urls: set[str] = set()
+    signatures: set[str] = set()
+    site_counts: dict[str, int] = {}
+    duplicate_count = 0
+    for result in scored:
+        quality = dict(result["quality"])
+        penalty = 0
+        canonical = _canonical_source_key(str(result.get("url") or ""))
+        signature = _content_signature(result)
+        site = _source_site_key(str(quality.get("domain") or ""))
+        if canonical in canonical_urls:
+            penalty += 45
+            duplicate_count += 1
+            quality["signals"].append("duplicate-source")
+            quality["warnings"].append("Duplicate source URL.")
+        else:
+            canonical_urls.add(canonical)
+        if signature and signature in signatures:
+            penalty += 28
+            duplicate_count += 1
+            quality["signals"].append("near-duplicate-source")
+            quality["warnings"].append("Likely duplicate title or snippet.")
+        elif signature:
+            signatures.add(signature)
+        same_site_count = site_counts.get(site, 0)
+        if same_site_count > 0:
+            penalty += min(30, 12 * same_site_count)
+            quality["signals"].append("same-domain-duplicate")
+            quality["warnings"].append("Additional source from the same domain.")
+        site_counts[site] = same_site_count + 1
+        if penalty:
+            quality["score"] = max(1, quality["score"] - penalty)
+            quality["confidence"] = _confidence_from_score(quality["score"])
+        quality["signals"] = sorted(set(quality["signals"]))
+        quality["warnings"] = sorted(set(quality["warnings"]))
+        result["quality"] = quality
+
+    usable = sorted(scored, key=lambda item: item["quality"]["score"], reverse=True)
+    top_scores = [item["quality"]["score"] for item in usable[:3]]
+    score = round(sum(top_scores) / len(top_scores)) if top_scores else 0
+    unique_domain_count = len(site_counts)
+    evidence_diversity = "high" if unique_domain_count >= 3 and duplicate_count == 0 else "medium" if unique_domain_count >= 2 else "low"
+    confidence = "high" if top_scores and top_scores[0] >= 80 and score >= 55 else _confidence_from_score(score)
+    if evidence_diversity == "low" and confidence == "high":
+        confidence = "medium"
+    require_multiple = _env_bool("RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES", False)
+    warnings = sorted(set(
+        warning
+        for result in [*usable, *blocked]
+        for warning in result["quality"].get("warnings", [])
+    ))
+    if blocked:
+        warnings.append(f"{len(blocked)} result(s) excluded by blocked-domain or invalid-source rules.")
+    if not usable:
+        warnings.append("No usable research sources passed quality scoring.")
+        confidence = "low"
+    if require_multiple and len(usable) < 2:
+        warnings.append("Configuration requires multiple usable sources, but fewer than two passed quality scoring.")
+        confidence = "low"
+    if require_multiple and unique_domain_count < 2:
+        warnings.append("Configuration requires multiple usable sources, but fewer than two unique source domains passed quality scoring.")
+        confidence = "low"
+    if duplicate_count:
+        warnings.append(f"{duplicate_count} duplicate or near-duplicate source signal(s) detected.")
+    if len(usable) > 1 and unique_domain_count < 2:
+        warnings.append("Low evidence diversity: usable sources come from fewer than two unique domains.")
+
+    return {
+        "confidence": confidence,
+        "score": score,
+        "warnings": sorted(set(warnings)),
+        "result_count": len(results),
+        "usable_result_count": len(usable),
+        "blocked_result_count": len(blocked),
+        "unique_domain_count": unique_domain_count,
+        "duplicate_cluster_count": duplicate_count,
+        "evidence_diversity": evidence_diversity,
+        "results": usable,
+    }
 
 
 def _format_source_followup_context() -> str:
@@ -417,26 +750,55 @@ def _search(query: str, limit: int) -> dict[str, Any]:
         return {"success": False, "provider": "none", "query": query, "results": [], "error": str(exc), "fallback_errors": errors[-2:]}
 
 
-def _format_context(payload: dict[str, Any], reason: str, model: str | None) -> str:
+def _format_context(payload: dict[str, Any], reason: str, model: str | None, quality: dict[str, Any] | None = None, current_prompt: str | None = None) -> str:
     if not payload.get("success"):
+        return ""
+    results = quality.get("results") if quality else payload.get("results", [])
+    if quality and not results:
         return ""
     lines = [
         "[Research Guard: automatische Webrecherche vor Antwort]",
         f"Auslöser: {reason}; Modell: {model or 'unknown'}; Provider: {payload.get('provider')}; Query: {payload.get('query')}",
         "Diese Quellen wurden automatisch durch Research Guard für die aktuelle Nutzerfrage recherchiert.",
+        "Beantworte ausschließlich die aktuelle Nutzerfrage. Wiederhole keine frühere Antwort, außer der Nutzer fordert das ausdrücklich.",
         "Nutze die Quellen unten für faktische Aussagen. Antworte nicht nur aus Trainingswissen, wenn diese Quellen passen.",
         "Wenn der Nutzer später fragt, woher die Info stammt oder wie die Antwort zustande kam, nenne Research Guard und die URLs aus diesem Kontext.",
-        "Wenn die Quellen nicht reichen oder widersprüchlich sind, sag das klar. Erfinde keine Details.",
+        "Beachte die Quellenbewertung. Bei niedriger Confidence antworte vorsichtig und markiere Unsicherheit ausdrücklich.",
+        "Wenn die Quellen nicht reichen oder widersprüchlich sind, sag das klar. Erfinde keine Details oder Quellen.",
+        "Füge keine unaufgeforderten Zusatzfakten hinzu. Bei Ortsfragen wie `Wo liegt ...?` nenne keine Flüsse, Verkehrsachsen, Einwohnerzahlen oder Entfernungen, außer sie wurden gefragt und stehen ausdrücklich in den Quellen.",
         "Füge am Ende eine kurze Zeile `Quellen (Research Guard): <URL 1>, <URL 2>` an, außer der Nutzer verlangt ausdrücklich keine Quellen.",
-        "",
-        "Quellen:",
     ]
+    if quality:
+        lines.append(
+            "Quellenbewertung: "
+            f"{quality.get('confidence')} ({quality.get('score')}/100, "
+            f"{quality.get('usable_result_count')}/{quality.get('result_count')} nutzbare Quelle(n), "
+            f"Quellenvielfalt: {quality.get('evidence_diversity')}, "
+            f"{quality.get('unique_domain_count')} Domain(s), "
+            f"{quality.get('duplicate_cluster_count')} Duplicate-Hinweis(e))."
+        )
+        if quality.get("warnings"):
+            lines.append(f"Bewertungshinweise: {' '.join(quality.get('warnings') or [])}")
+    if current_prompt:
+        lines.append(f"Aktuelle Nutzerfrage: {current_prompt}")
+    lines.extend(["", "Quellen:"])
     max_results = _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10)
-    for idx, item in enumerate(payload.get("results", [])[:max_results], 1):
+    for idx, item in enumerate(results[:max_results], 1):
         title = item.get("title", "Untitled")[:180]
         url = item.get("url", "")[:240]
         snippet = item.get("snippet", "")[:500]
         lines.append(f"{idx}. {title}\n   URL: {url}\n   Auszug: {snippet}")
+        item_quality = item.get("quality") or {}
+        if item_quality:
+            signals = ", ".join(item_quality.get("signals") or [])
+            warnings = " ".join(item_quality.get("warnings") or [])
+            signal_text = f"; {signals}" if signals else ""
+            warning_text = f"; Warnung: {warnings}" if warnings else ""
+            lines.append(
+                "   Qualität: "
+                f"{item_quality.get('confidence')} ({item_quality.get('score')}/100; "
+                f"{item_quality.get('domain')}{signal_text}{warning_text})"
+            )
     return "\n".join(lines)
 
 
@@ -448,12 +810,20 @@ def research_guard_search(args: dict, **kwargs) -> str:
     if not query:
         return json.dumps({"error": "query is required"}, ensure_ascii=False)
     payload = _search(query, max(1, min(limit, 10)))
+    quality = _score_research_results(payload.get("results") or [], str(payload.get("query") or query)) if payload.get("success") else None
+    if quality:
+        payload = {**payload, "results": quality["results"], "quality": quality}
     _record_decision(
         "manual_search",
         "manual research_guard_search tool call",
         provider=payload.get("provider"),
         query=payload.get("query") or query,
         success=bool(payload.get("success")),
+        confidence=quality.get("confidence") if quality else None,
+        score=quality.get("score") if quality else None,
+        usable_result_count=quality.get("usable_result_count") if quality else None,
+        blocked_result_count=quality.get("blocked_result_count") if quality else None,
+        evidence_diversity=quality.get("evidence_diversity") if quality else None,
         sources=_source_summaries(payload.get("results") or []),
         error=payload.get("error"),
     )
@@ -500,7 +870,24 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
         return None
     limit = _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10)
     payload = _search(query, limit)
-    context = _format_context(payload, reason, model)
+    quality = _score_research_results(payload.get("results") or [], str(payload.get("query") or query)) if payload.get("success") else None
+    min_confidence = _parse_confidence(os.getenv("RESEARCH_GUARD_MIN_CONFIDENCE"), "low")
+    if quality and not _meets_min_confidence(str(quality.get("confidence") or "low"), min_confidence):
+        _record_decision(
+            "failed",
+            f"confidence {quality.get('confidence')} below configured minimum {min_confidence}",
+            model=model,
+            provider=payload.get("provider"),
+            query=payload.get("query") or query,
+            confidence=quality.get("confidence"),
+            score=quality.get("score"),
+            usable_result_count=quality.get("usable_result_count"),
+            blocked_result_count=quality.get("blocked_result_count"),
+            evidence_diversity=quality.get("evidence_diversity"),
+            warnings=quality.get("warnings"),
+        )
+        return None
+    context = _format_context(payload, reason, model, quality, _clean_message_for_research(user_message))
     if not context:
         _record_decision(
             "failed",
@@ -508,6 +895,10 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             model=model,
             provider=payload.get("provider"),
             query=payload.get("query") or query,
+            confidence=quality.get("confidence") if quality else None,
+            score=quality.get("score") if quality else None,
+            usable_result_count=quality.get("usable_result_count") if quality else None,
+            blocked_result_count=quality.get("blocked_result_count") if quality else None,
             error=payload.get("error"),
         )
         logger.info("research-guard search skipped/failed: %s", payload.get("error"))
@@ -519,7 +910,13 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
         provider=payload.get("provider"),
         query=payload.get("query") or query,
         cached=payload.get("cached"),
-        sources=_source_summaries(payload.get("results") or []),
+        confidence=quality.get("confidence") if quality else None,
+        score=quality.get("score") if quality else None,
+        usable_result_count=quality.get("usable_result_count") if quality else None,
+        blocked_result_count=quality.get("blocked_result_count") if quality else None,
+        evidence_diversity=quality.get("evidence_diversity") if quality else None,
+        warnings=quality.get("warnings") if quality else None,
+        sources=_source_summaries(quality.get("results") if quality else payload.get("results") or []),
     )
     return {"context": context}
 

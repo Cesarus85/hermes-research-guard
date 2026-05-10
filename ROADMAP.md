@@ -47,12 +47,12 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Context/opinion follow-up guard | `[x]` | Short prompts such as "Was hältst du davon?" reuse the last Research Guard topic instead of searching the literal phrase. |
 | Follow-up subject carryover | `[ ] PORT` | Full prior-subject extraction from Hermes `conversation_history` is still pending for broader pronoun/demonstrative rewrites. |
 | Structured deep fetch | `[ ] PORT` | Fetch top-page excerpts for detail-heavy prompts such as tracklists, tables, release notes, prices, and population facts. |
-| Source quality scoring | `[ ] PORT` | Port official/docs/government/vendor/project/freshness scoring. |
-| Confidence gating | `[ ] PORT` | Add `minConfidence`, `requireMultipleSources`, usable-source count, and injection blocking. |
-| Preferred domains | `[ ] PORT` | Add env/config support for boosted domains. |
-| Blocked domains | `[ ] PORT` | Add env/config support for excluded domains. |
-| Duplicate and same-domain dampening | `[ ] PORT` | Prevent one domain or duplicate snippets from looking like independent evidence. |
-| Freshness scoring | `[ ] PORT` | Warn/downgrade stale or undated sources for current-information queries. |
+| Source quality scoring | `[x]` | v0.3.0 ports official/docs/government/municipal/vendor/project/reference scoring. |
+| Confidence gating | `[x]` | v0.3.0 adds `RESEARCH_GUARD_MIN_CONFIDENCE`, usable counts, and multiple-source downgrade support. |
+| Preferred domains | `[x]` | `RESEARCH_GUARD_PREFERRED_DOMAINS` boosts trusted domains. |
+| Blocked domains | `[x]` | `RESEARCH_GUARD_BLOCKED_DOMAINS` excludes configured domains from injected sources. |
+| Duplicate and same-domain dampening | `[x]` | v0.3.0 dampens duplicate URLs, near-duplicate snippets, and repeated same-domain sources. |
+| Freshness scoring | `[x]` | v0.3.0 warns/downgrades stale or undated sources for current-information queries. |
 | Strict location-answer grounding | `[ ] ADAPT` | Put this in the injected context block, because Hermes does not expose plugin system-prompt injection. |
 | Required Research Guard source line | `[ ] ADAPT` | Add instruction inside context block, optionally controlled by `RESEARCH_GUARD_REQUIRE_SOURCES`. |
 | No-research stale-context boundary | `[ ] ADAPT` | Hermes context is ephemeral, but a skipped-turn boundary can still help local models. |
@@ -120,19 +120,19 @@ Goal: turn conversational prompts into search-friendly queries without losing us
 
 Goal: only inject research context when sources are useful enough to improve the answer.
 
-- [ ] PORT Score every search result before injection.
-- [ ] PORT Prefer preferred domains, government domains, municipal sources, documentation pages, vendor/project sources, package registries, GitHub/GitLab, Wikipedia/Wikidata where appropriate.
-- [ ] PORT Demote missing snippets, forums/social sources, SEO aggregators, scraper pages, paywalls, listicles, coupons, and weak commercial pages.
-- [ ] PORT Add `RESEARCH_GUARD_MIN_CONFIDENCE=low|medium|high`.
-- [ ] PORT Add `RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES=true|false`.
-- [ ] PORT Add `RESEARCH_GUARD_PREFERRED_DOMAINS=...`.
-- [ ] PORT Add `RESEARCH_GUARD_BLOCKED_DOMAINS=...`.
-- [ ] PORT Detect duplicate URLs, near-duplicate snippets, and same-domain clusters.
-- [ ] PORT Track evidence diversity: `low|medium|high`.
-- [ ] PORT Add freshness scoring for current-information prompts.
-- [ ] PORT Warn on stale or undated current-information sources.
-- [ ] PORT Block injection when no usable sources pass scoring.
-- [ ] PORT Block injection when confidence is below the configured minimum.
+- [x] Score every search result before injection.
+- [x] Prefer preferred domains, government domains, municipal sources, documentation pages, vendor/project sources, package registries, GitHub/GitLab, Wikipedia/Wikidata where appropriate.
+- [x] Demote missing snippets, forums/social sources, SEO aggregators, scraper pages, paywalls, listicles, coupons, and weak commercial pages.
+- [x] Add `RESEARCH_GUARD_MIN_CONFIDENCE=low|medium|high`.
+- [x] Add `RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES=true|false`.
+- [x] Add `RESEARCH_GUARD_PREFERRED_DOMAINS=...`.
+- [x] Add `RESEARCH_GUARD_BLOCKED_DOMAINS=...`.
+- [x] Detect duplicate URLs, near-duplicate snippets, and same-domain clusters.
+- [x] Track evidence diversity: `low|medium|high`.
+- [x] Add freshness scoring for current-information prompts.
+- [x] Warn on stale or undated current-information sources.
+- [x] Block injection when no usable sources pass scoring.
+- [x] Block injection when confidence is below the configured minimum.
 
 ## v0.7 - Structured Deep Fetch
 
@@ -159,7 +159,7 @@ Goal: compensate for Hermes user-message injection by making the context block e
 - [ ] ADAPT Require uncertainty when sources are missing, weak, stale, or contradictory.
 - [x] Add final line instruction: `Quellen (Research Guard): <URL 1>, <URL 2>`.
 - [ ] ADAPT Add `RESEARCH_GUARD_REQUIRE_SOURCES=true|false`.
-- [ ] ADAPT Add strict location-question rule: no rivers, traffic routes, population, distances, or extra facts unless asked and source-backed.
+- [x] Add strict location-question rule: no rivers, traffic routes, population, distances, or extra facts unless asked and source-backed.
 - [ ] LIMIT Do not attempt true plugin system-prompt injection unless Hermes exposes a supported API for it.
 
 ## v0.9 - Observability And Status Tools
@@ -169,7 +169,7 @@ Goal: make every Research Guard decision inspectable.
 - [x] Add in-memory decision ring buffer.
 - [x] Cap decision history, default 30 entries.
 - [x] Record action: `injected`, `skipped`, `failed`, and `manual_search`.
-- [ ] PORT Record reason, provider, query, model, prompt preview, cache hit, and source summaries; richer confidence/score fields remain for source-scoring work.
+- [x] Record reason, provider, query, model, prompt preview, cache hit, source summaries, confidence, score, usable/blocked counts, diversity, and warnings.
 - [x] Add `research_guard_status` tool.
 - [ ] ADAPT Add optional Hermes slash command `/research_guard_status` or `/rg-status`.
 - [ ] PORT Add diagnostic categories: `researched_and_injected`, `manual_research`, `researched_but_not_injected`, `checked_and_skipped`, `failed`.
@@ -213,9 +213,9 @@ Goal: make future changes safe.
 - [x] Add tests for source-provenance follow-ups.
 - [x] Add tests for context/opinion follow-ups.
 - [ ] PORT Add tests for follow-up subject carryover.
-- [ ] PORT Add tests for source scoring and confidence gates.
-- [ ] PORT Add tests for duplicate/same-domain dampening.
-- [ ] PORT Add tests for freshness/staleness scoring.
+- [x] Add tests for source scoring and confidence gates.
+- [x] Add tests for duplicate/same-domain dampening.
+- [ ] PORT Add fuller tests for freshness/staleness scoring.
 - [ ] PORT Add tests for provider normalization.
 - [ ] ADAPT Add integration smoke test for Hermes `pre_llm_call` context injection if a stable test harness exists.
 - [ ] ADAPT Add GitHub Actions lint/test workflow once the project has a test runner.

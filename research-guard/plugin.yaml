@@ -1,5 +1,5 @@
 name: research-guard
-version: 0.2.1
+version: 0.3.0
 description: "Pre-LLM web research guard for local/small models. Injects compact search context for factual/general-knowledge questions before the model answers."
 author: Iris / Stefan
 provides_hooks:

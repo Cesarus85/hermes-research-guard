@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import unittest
 from pathlib import Path
 
@@ -134,6 +135,167 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         payload = guard.research_guard_status({"limit": 1})
         self.assertIn('"plugin": "research-guard"', payload)
         self.assertIn('"reason": "local-infrastructure"', payload)
+
+    def test_scores_preferred_and_official_sources_above_weak_aggregators(self):
+        old_preferred = os.environ.get("RESEARCH_GUARD_PREFERRED_DOMAINS")
+        os.environ["RESEARCH_GUARD_PREFERRED_DOMAINS"] = "example.com"
+        try:
+            quality = guard._score_research_results(
+                [
+                    {
+                        "title": "Official API Documentation",
+                        "url": "https://docs.example.com/api",
+                        "snippet": "Official documentation and release notes for Example.",
+                    },
+                    {
+                        "title": "Top 10 Example alternatives",
+                        "url": "https://alternativeto.net/software/example",
+                        "snippet": "Best alternatives and deals.",
+                    },
+                ],
+                "Example latest release",
+            )
+        finally:
+            if old_preferred is None:
+                os.environ.pop("RESEARCH_GUARD_PREFERRED_DOMAINS", None)
+            else:
+                os.environ["RESEARCH_GUARD_PREFERRED_DOMAINS"] = old_preferred
+
+        self.assertEqual(quality["confidence"], "high")
+        self.assertEqual(quality["results"][0]["url"], "https://docs.example.com/api")
+        self.assertIn("preferred-domain", quality["results"][0]["quality"]["signals"])
+        self.assertIn("documentation-source", quality["results"][0]["quality"]["signals"])
+        self.assertEqual(quality["results"][1]["quality"]["confidence"], "low")
+
+    def test_excludes_blocked_domains_from_usable_sources(self):
+        old_blocked = os.environ.get("RESEARCH_GUARD_BLOCKED_DOMAINS")
+        os.environ["RESEARCH_GUARD_BLOCKED_DOMAINS"] = "spam.example"
+        try:
+            quality = guard._score_research_results(
+                [
+                    {
+                        "title": "Blocked result",
+                        "url": "https://spam.example/article",
+                        "snippet": "Looks relevant but must not be used.",
+                    },
+                    {
+                        "title": "Government source",
+                        "url": "https://data.gov/example",
+                        "snippet": "Official population data.",
+                    },
+                ],
+                "current population example",
+            )
+        finally:
+            if old_blocked is None:
+                os.environ.pop("RESEARCH_GUARD_BLOCKED_DOMAINS", None)
+            else:
+                os.environ["RESEARCH_GUARD_BLOCKED_DOMAINS"] = old_blocked
+
+        self.assertEqual(quality["blocked_result_count"], 1)
+        self.assertEqual(quality["usable_result_count"], 1)
+        self.assertNotIn("https://spam.example/article", [item["url"] for item in quality["results"]])
+        self.assertIn("Blocked domain", " ".join(quality["warnings"]))
+
+    def test_prefers_municipal_sources_for_local_office_questions(self):
+        quality = guard._score_research_results(
+            [
+                {
+                    "title": "Forchheim mayor result",
+                    "url": "https://example-news.test/forchheim-mayor",
+                    "snippet": "News report about the mayoral election in Forchheim.",
+                    "age": "2026-03-23",
+                },
+                {
+                    "title": "Stadt Forchheim Bürgermeister",
+                    "url": "https://www.forchheim.de/rathaus-service/stadtverwaltung/aemteruebersicht/buergermeister",
+                    "snippet": "Offizielle Stadtverwaltung: Oberbürgermeisterin Martina Hebendanz.",
+                    "age": "2026-05-01",
+                },
+            ],
+            "Wer ist Bürgermeister von Forchheim?",
+        )
+
+        self.assertIn("forchheim.de", quality["results"][0]["url"])
+        self.assertIn("municipal-source", quality["results"][0]["quality"]["signals"])
+        self.assertIn("fresh-source", quality["results"][0]["quality"]["signals"])
+
+    def test_dampens_repeated_sources_from_same_domain(self):
+        quality = guard._score_research_results(
+            [
+                {
+                    "title": "Official release notes",
+                    "url": "https://docs.example.com/releases/1",
+                    "snippet": "Official release notes for Example 1.0.",
+                },
+                {
+                    "title": "Official release notes archive",
+                    "url": "https://docs.example.com/releases/archive",
+                    "snippet": "Official release notes for Example 1.0 archive.",
+                },
+            ],
+            "Example latest release",
+        )
+
+        self.assertEqual(quality["unique_domain_count"], 1)
+        self.assertEqual(quality["evidence_diversity"], "low")
+        self.assertIn("Low evidence diversity", " ".join(quality["warnings"]))
+        self.assertTrue(any("same-domain-duplicate" in item["quality"]["signals"] for item in quality["results"][1:]))
+
+    def test_confidence_gate_and_multiple_source_requirement_helpers(self):
+        self.assertTrue(guard._meets_min_confidence("high", "medium"))
+        self.assertFalse(guard._meets_min_confidence("low", "medium"))
+
+        old_require = os.environ.get("RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES")
+        os.environ["RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES"] = "true"
+        try:
+            quality = guard._score_research_results(
+                [
+                    {
+                        "title": "Official docs",
+                        "url": "https://docs.example.com/release",
+                        "snippet": "Official release notes.",
+                    },
+                ],
+                "Example latest release",
+            )
+        finally:
+            if old_require is None:
+                os.environ.pop("RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES", None)
+            else:
+                os.environ["RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES"] = old_require
+
+        self.assertEqual(quality["confidence"], "low")
+        self.assertIn("requires multiple usable sources", " ".join(quality["warnings"]))
+
+    def test_injected_context_includes_quality_and_location_discipline(self):
+        quality = guard._score_research_results(
+            [
+                {
+                    "title": "Official city page",
+                    "url": "https://www.forchheim.de/rathaus-service/",
+                    "snippet": "Offizielle Stadtverwaltung Forchheim.",
+                },
+            ],
+            "Wo liegt Forchheim?",
+        )
+        context = guard._format_context(
+            {
+                "success": True,
+                "provider": "test",
+                "query": "Wo liegt Forchheim?",
+                "results": quality["results"],
+            },
+            "factual-question",
+            "qwen",
+            quality,
+            "Wo liegt Forchheim?",
+        )
+
+        self.assertIn("Quellenbewertung:", context)
+        self.assertIn("Qualität:", context)
+        self.assertIn("Bei Ortsfragen", context)
+        self.assertIn("Aktuelle Nutzerfrage: Wo liegt Forchheim?", context)
 
 
 if __name__ == "__main__":
