@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import unittest
 from pathlib import Path
@@ -183,7 +184,65 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         guard._record_decision("skipped", "local-infrastructure", model="qwen")
         payload = guard.research_guard_status({"limit": 1})
         self.assertIn('"plugin": "research-guard"', payload)
+        self.assertIn('"status_version": 2', payload)
         self.assertIn('"reason": "local-infrastructure"', payload)
+
+    def test_status_v2_adds_categories_evidence_and_redacted_prompt_preview(self):
+        guard.DECISIONS.clear()
+        guard._record_decision(
+            "skipped",
+            "local-infrastructure",
+            model="qwen",
+            provider="ollama",
+            query_debug={
+                "original_preview": "Wie ist die IP von Ares?",
+                "cleaned_prompt": "Wie ist die IP von Ares?",
+                "carried_subject": None,
+                "final_query": "Wie ist die IP von Ares?",
+                "history_available": False,
+            },
+            prompt="Mail test@example.com Token abcdefghijklmnopqrstuvwxyz1234567890 Telefon +49 123 456789",
+        )
+        status = json.loads(guard.research_guard_status({"limit": 1}))
+        decision = status["decisions"][0]
+
+        self.assertEqual(decision["category"], "checked_and_skipped")
+        self.assertEqual(decision["visible_effect"], "none")
+        self.assertIn("action=skipped", decision["evidence"])
+        self.assertIn("query_debug", decision)
+        self.assertIn("[redacted-email]", decision["prompt_preview"])
+        self.assertIn("[redacted-token]", decision["prompt_preview"])
+        self.assertIn("[redacted-phone]", decision["prompt_preview"])
+        self.assertNotIn("test@example.com", decision["prompt_preview"])
+        self.assertIn("cache", status)
+        self.assertIn("config", status)
+
+    def test_query_debug_is_redacted_when_stored_in_decisions(self):
+        guard.DECISIONS.clear()
+        guard._record_decision(
+            "skipped",
+            "no-trigger",
+            query_debug={
+                "original_preview": "Mail test@example.com",
+                "cleaned_prompt": "Token abcdefghijklmnopqrstuvwxyz1234567890",
+                "carried_subject": None,
+                "final_query": "Telefon +49 123 456789",
+                "history_available": False,
+            },
+        )
+        decision = json.loads(guard.research_guard_status({"limit": 1}))["decisions"][0]
+
+        self.assertEqual(decision["query_debug"]["original_preview"], "Mail [redacted-email]")
+        self.assertIn("[redacted-token]", decision["query_debug"]["cleaned_prompt"])
+        self.assertIn("[redacted-phone]", decision["query_debug"]["final_query"])
+
+    def test_query_debug_reports_carried_subject_and_final_query(self):
+        messages = [{"role": "user", "content": "Wer ist Wal Timmy?"}]
+        debug = guard._query_debug("Was ist mit ihm danach passiert?", messages)
+
+        self.assertEqual(debug["carried_subject"], "Wal Timmy")
+        self.assertEqual(debug["final_query"], "Wal Timmy Was ist mit ihm danach passiert?")
+        self.assertTrue(debug["history_available"])
 
     def test_scores_preferred_and_official_sources_above_weak_aggregators(self):
         old_preferred = os.environ.get("RESEARCH_GUARD_PREFERRED_DOMAINS")

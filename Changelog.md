@@ -1,3 +1,11 @@
+## 2026-05-10 - Debug/Status v2 ergänzt
+- **Typ:** feature
+- **Auslöser:** Chat — Stefan fragte, ob noch ein weiterer kleiner Block sinnvoll ist; gewählt wurde ein risikoarmes Diagnosepaket.
+- **Änderung:** `research_guard_status` liefert jetzt Status v2 mit Cache-Statistik, Konfigurations-Snapshot, Entscheidungskategorien, sichtbarem Effekt, Evidence-Strings und Query-Debug.
+- **Inhalt:** Entscheidungen werden als `researched_and_injected`, `manual_research`, `researched_but_not_injected`, `checked_and_skipped` oder `failed` klassifiziert. `visible_effect` zeigt, ob Quellen injiziert, ein Tool-Result erzeugt oder nichts sichtbar wurde. `query_debug` enthält redigierten Original-Prompt, bereinigten Prompt, getragenes Subject, finale Query und History-Verfügbarkeit. Prompt-Previews redigieren E-Mails, telefonähnliche Werte und lange tokenartige Strings.
+- **Version:** Plugin-Version auf `0.5.0` erhöht.
+- **Tests:** Coverage für Status-v2-Felder, Kategorien, Evidence, Prompt-Redaction und Query-Debug ergänzt.
+
 ## 2026-05-10 - Quick Parity Pack v0.4.0
 - **Typ:** feature
 - **Auslöser:** Chat — Stefan wollte 1-3 weitere OpenClaw-Features übernehmen, damit der Versionssprung sich lohnt.

@@ -21,7 +21,7 @@ It is meant for setups where models like Qwen, Llama, Mistral, Gemma, Phi, or Ol
 - Keeps a small in-memory decision buffer so source follow-ups such as `Wo hast du die Info her?` can be answered from the previous Research Guard decision instead of triggering a fresh search for the follow-up itself.
 - Detects context/opinion follow-ups such as `Was hältst du davon?` and reuses the last Research Guard topic instead of searching the literal follow-up phrase.
 - Carries a prior subject from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative follow-up search queries such as `Was ist mit ihm danach passiert?`.
-- Exposes manual `research_guard_search` and `research_guard_status` tools for debugging/manual use.
+- Exposes manual `research_guard_search` and `research_guard_status` tools for debugging/manual use. Status v2 includes cache stats, config snapshot, decision categories, visible effect, evidence strings, source-quality fields, and redacted query-building diagnostics.
 
 This keeps system prompts stable and preserves prompt-cache efficiency.
 
@@ -144,6 +144,17 @@ research_guard_status
 ```
 
 That tool returns the recent decision buffer as JSON.
+
+`research_guard_status` uses status v2. Each decision includes:
+
+```text
+category, visible_effect, evidence, query_debug, confidence, score,
+usable_result_count, blocked_result_count, evidence_diversity, warnings
+```
+
+Categories include `researched_and_injected`, `manual_research`, `researched_but_not_injected`, `checked_and_skipped`, and `failed`. The `query_debug` object shows the redacted original prompt preview, cleaned prompt, carried subject, final query, and whether Hermes history was available. Prompt previews redact emails, phone-like values, and long token-like strings.
+
+The status payload also includes cache statistics and a compact configuration snapshot so you can verify model-gate, confidence, preferred-domain, and blocked-domain behavior during real Hermes runs.
 
 ## Context and opinion follow-ups
 

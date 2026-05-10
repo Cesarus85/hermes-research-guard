@@ -283,6 +283,22 @@ def _extract_prior_subject(messages: list[Any] | None, prompt: str) -> str | Non
     return None
 
 
+def _query_debug(message: str, messages: list[Any] | None = None) -> dict[str, Any]:
+    cleaned = _clean_message_for_research(message)
+    stripped = RESEARCH_PREFIX_RE.sub("", cleaned)
+    stripped = NO_RESEARCH_PREFIX_RE.sub("", stripped)
+    stripped = re.sub(r"\s+", " ", stripped).strip()
+    carried_subject = _extract_prior_subject(messages, stripped)
+    final_query = f"{carried_subject} {stripped}".strip()[:240] if carried_subject else stripped[:240]
+    return {
+        "original_preview": _redact_prompt_preview(message),
+        "cleaned_prompt": _redact_prompt_preview(stripped, 240),
+        "carried_subject": carried_subject,
+        "final_query": final_query,
+        "history_available": bool(messages),
+    }
+
+
 def _is_source_followup(message: str) -> bool:
     text = _clean_message_for_research(message)
     if not text:
@@ -327,6 +343,10 @@ def _should_research(message: str) -> tuple[bool, str]:
 
 
 def _record_decision(action: str, reason: str, **details: Any) -> dict[str, Any]:
+    if "prompt" in details:
+        details["prompt_preview"] = _redact_prompt_preview(str(details.pop("prompt") or ""))
+    if isinstance(details.get("query_debug"), dict):
+        details["query_debug"] = _redact_query_debug(details["query_debug"])
     decision = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "action": action,
@@ -336,6 +356,73 @@ def _record_decision(action: str, reason: str, **details: Any) -> dict[str, Any]
     DECISIONS.append(decision)
     del DECISIONS[:-MAX_DECISIONS]
     return decision
+
+
+def _redact_prompt_preview(text: str, limit: int = 180) -> str:
+    value = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[redacted-email]", text or "")
+    value = re.sub(r"\b(?:\+?\d[\d\s()./-]{7,}\d)\b", "[redacted-phone]", value)
+    value = re.sub(r"\b[A-Za-z0-9_-]{32,}\b", "[redacted-token]", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value[:limit]
+
+
+def _redact_query_debug(value: dict[str, Any]) -> dict[str, Any]:
+    redacted = dict(value)
+    for key in ("original_preview", "cleaned_prompt", "final_query"):
+        if redacted.get(key) is not None:
+            redacted[key] = _redact_prompt_preview(str(redacted[key]), 240)
+    return redacted
+
+
+def _decision_category(decision: dict[str, Any]) -> str:
+    action = decision.get("action")
+    reason = str(decision.get("reason") or "")
+    if action == "injected":
+        return "researched_and_injected"
+    if action == "manual_search":
+        return "manual_research"
+    if action == "failed" and ("confidence" in reason or "quality" in reason or "usable" in reason):
+        return "researched_but_not_injected"
+    if action == "failed":
+        return "failed"
+    if action == "skipped":
+        return "checked_and_skipped"
+    return str(action or "unknown")
+
+
+def _visible_effect(decision: dict[str, Any]) -> str:
+    action = decision.get("action")
+    if action == "injected":
+        return "sources_injected"
+    if action == "manual_search":
+        return "manual_tool_result"
+    if action == "failed":
+        return "error_or_no_context"
+    return "none"
+
+
+def _diagnose_decision(decision: dict[str, Any]) -> dict[str, Any]:
+    diagnostic = dict(decision)
+    diagnostic["category"] = _decision_category(decision)
+    diagnostic["visible_effect"] = _visible_effect(decision)
+    evidence = [f"action={decision.get('action')}", f"reason={decision.get('reason')}"]
+    for field, label in (
+        ("provider", "provider"),
+        ("query", "query"),
+        ("confidence", "confidence"),
+        ("score", "score"),
+        ("usable_result_count", "usable"),
+        ("blocked_result_count", "blocked"),
+        ("evidence_diversity", "diversity"),
+        ("cached", "cache"),
+        ("cache_key", "cacheKey"),
+        ("model", "model"),
+        ("provider_gate", "providerGate"),
+    ):
+        if field in decision and decision.get(field) is not None:
+            evidence.append(f"{label}={decision.get(field)}")
+    diagnostic["evidence"] = evidence
+    return diagnostic
 
 
 def _recent_decisions(limit: int = 5) -> list[dict[str, Any]]:
@@ -947,6 +1034,51 @@ def _provider_from_context(platform: str | None, kwargs: dict[str, Any]) -> str 
     return platform
 
 
+def _cache_stats() -> dict[str, Any]:
+    cache = _load_cache()
+    now = time.time()
+    provider_counts: dict[str, int] = {}
+    valid_entries = 0
+    expired_entries = 0
+    for key, item in cache.items():
+        provider = "unknown"
+        match = re.search(r"(?:^|:)provider=([^:]+)", key)
+        if match:
+            provider = match.group(1)
+        else:
+            payload = item.get("payload") if isinstance(item, dict) else {}
+            if isinstance(payload, dict):
+                provider = str(payload.get("provider") or "unknown")
+        provider_counts[provider] = provider_counts.get(provider, 0) + 1
+        ts = float(item.get("ts", 0)) if isinstance(item, dict) else 0
+        ttl = _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400)
+        if ttl and now - ts < ttl:
+            valid_entries += 1
+        else:
+            expired_entries += 1
+    return {
+        "entries": len(cache),
+        "valid_entries": valid_entries,
+        "expired_entries": expired_entries,
+        "ttl_seconds": _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400),
+        "provider_counts": provider_counts,
+        "path": str(CACHE_PATH),
+    }
+
+
+def _config_snapshot() -> dict[str, Any]:
+    return {
+        "enabled": _env_bool("RESEARCH_GUARD_ENABLED", True),
+        "only_local": _env_bool("RESEARCH_GUARD_ONLY_LOCAL", True),
+        "allow_cloud_research_triggers": _env_bool("RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS", False),
+        "max_results": _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10),
+        "min_confidence": _parse_confidence(os.getenv("RESEARCH_GUARD_MIN_CONFIDENCE"), "low"),
+        "require_multiple_sources": _env_bool("RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES", False),
+        "preferred_domains": _env_list("RESEARCH_GUARD_PREFERRED_DOMAINS"),
+        "blocked_domains": _env_list("RESEARCH_GUARD_BLOCKED_DOMAINS"),
+    }
+
+
 def research_guard_search(args: dict, **kwargs) -> str:
     """Manual tool: run the same research search used by the hook."""
     del kwargs
@@ -969,6 +1101,8 @@ def research_guard_search(args: dict, **kwargs) -> str:
         usable_result_count=quality.get("usable_result_count") if quality else None,
         blocked_result_count=quality.get("blocked_result_count") if quality else None,
         evidence_diversity=quality.get("evidence_diversity") if quality else None,
+        cache_key=payload.get("cache_key"),
+        cached=payload.get("cached"),
         sources=_source_summaries(payload.get("results") or []),
         error=payload.get("error"),
     )
@@ -979,10 +1113,27 @@ def research_guard_status(args: dict, **kwargs) -> str:
     """Manual tool: show recent Research Guard decisions."""
     del kwargs
     limit = int(args.get("limit") or 5)
+    decisions = [_diagnose_decision(decision) for decision in _recent_decisions(limit)]
+    categories: dict[str, int] = {}
+    for decision in decisions:
+        category = str(decision.get("category") or "unknown")
+        categories[category] = categories.get(category, 0) + 1
     return json.dumps(
         {
             "plugin": "research-guard",
-            "decisions": _recent_decisions(limit),
+            "status_version": 2,
+            "config": _config_snapshot(),
+            "cache": _cache_stats(),
+            "categories": categories,
+            "decisions": decisions,
+            "diagnostics": {
+                "decision_fields": [
+                    "category", "visible_effect", "evidence", "query_debug",
+                    "confidence", "score", "usable_result_count", "blocked_result_count",
+                    "evidence_diversity", "warnings",
+                ],
+                "prompt_preview_redaction": "emails, phone-like values, and long token-like strings are redacted",
+            },
             "note": (
                 "Injected Research Guard context is ephemeral in Hermes. "
                 "Use this status to explain whether the previous factual answer used Research Guard sources."
@@ -997,23 +1148,36 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
     del session_id
     provider = _provider_from_context(platform, kwargs)
     messages = _conversation_history_from_kwargs(kwargs)
+    query_debug = _query_debug(user_message, messages)
     if not _env_bool("RESEARCH_GUARD_ENABLED", True):
-        _record_decision("skipped", "plugin disabled", model=model)
+        _record_decision("skipped", "plugin disabled", model=model, provider=provider, query_debug=query_debug)
         return None
     should, reason = _should_research(user_message)
     if _should_skip_for_model_gate(model, provider, should, reason):
-        _record_decision("skipped", "non-local model gate", model=model, provider=provider, prompt=_clean_message_for_research(user_message)[:180])
+        _record_decision(
+            "skipped",
+            "non-local model gate",
+            model=model,
+            provider=provider,
+            provider_gate={
+                "only_local": _env_bool("RESEARCH_GUARD_ONLY_LOCAL", True),
+                "allow_cloud_research_triggers": _env_bool("RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS", False),
+                "classification": {"should_research": should, "reason": reason},
+            },
+            query_debug=query_debug,
+            prompt=_clean_message_for_research(user_message)[:180],
+        )
         return None
     if reason == "source-followup":
         return {"context": _format_source_followup_context()}
     if reason == "context-followup":
         return {"context": _format_context_followup_context()}
     if not should:
-        _record_decision("skipped", reason, model=model, prompt=_clean_message_for_research(user_message)[:180])
+        _record_decision("skipped", reason, model=model, provider=provider, query_debug=query_debug, prompt=_clean_message_for_research(user_message)[:180])
         return None
-    query = _build_search_query(user_message, messages)
+    query = str(query_debug.get("final_query") or _build_search_query(user_message, messages))
     if not query:
-        _record_decision("skipped", "empty query after cleanup", model=model)
+        _record_decision("skipped", "empty query after cleanup", model=model, provider=provider, query_debug=query_debug)
         return None
     limit = _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10)
     payload = _search(query, limit)
@@ -1026,12 +1190,15 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             model=model,
             provider=payload.get("provider"),
             query=payload.get("query") or query,
+            query_debug=query_debug,
             confidence=quality.get("confidence"),
             score=quality.get("score"),
             usable_result_count=quality.get("usable_result_count"),
             blocked_result_count=quality.get("blocked_result_count"),
             evidence_diversity=quality.get("evidence_diversity"),
             warnings=quality.get("warnings"),
+            cache_key=payload.get("cache_key"),
+            cached=payload.get("cached"),
         )
         return None
     context = _format_context(payload, reason, model, quality, _clean_message_for_research(user_message))
@@ -1042,10 +1209,13 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             model=model,
             provider=payload.get("provider"),
             query=payload.get("query") or query,
+            query_debug=query_debug,
             confidence=quality.get("confidence") if quality else None,
             score=quality.get("score") if quality else None,
             usable_result_count=quality.get("usable_result_count") if quality else None,
             blocked_result_count=quality.get("blocked_result_count") if quality else None,
+            cache_key=payload.get("cache_key"),
+            cached=payload.get("cached"),
             error=payload.get("error"),
         )
         logger.info("research-guard search skipped/failed: %s", payload.get("error"))
@@ -1056,7 +1226,9 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
         model=model,
         provider=payload.get("provider"),
         query=payload.get("query") or query,
+        query_debug=query_debug,
         cached=payload.get("cached"),
+        cache_key=payload.get("cache_key"),
         confidence=quality.get("confidence") if quality else None,
         score=quality.get("score") if quality else None,
         usable_result_count=quality.get("usable_result_count") if quality else None,
@@ -1083,7 +1255,7 @@ TOOL_SCHEMA = {
 
 STATUS_TOOL_SCHEMA = {
     "name": "research_guard_status",
-    "description": "Show recent Research Guard decisions, including whether context was injected, the query, provider, and stored sources. Use this when the user asks where a factual answer came from or how it was produced.",
+    "description": "Show recent Research Guard diagnostics only: decisions, categories, visible effects, query debug, source quality, config snapshot, and cache stats. Use this when the user asks where a factual answer came from or why Research Guard did or did not run; do not answer the prior factual question from this tool alone.",
     "parameters": {
         "type": "object",
         "properties": {

@@ -56,9 +56,9 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Strict location-answer grounding | `[ ] ADAPT` | Put this in the injected context block, because Hermes does not expose plugin system-prompt injection. |
 | Required Research Guard source line | `[ ] ADAPT` | Add instruction inside context block, optionally controlled by `RESEARCH_GUARD_REQUIRE_SOURCES`. |
 | No-research stale-context boundary | `[ ] ADAPT` | Hermes context is ephemeral, but a skipped-turn boundary can still help local models. |
-| `research_guard_status` tool | `[x]` | Added in-memory decision buffer with recent actions, reasons, provider, query, cache flag, and stored source summaries. |
-| Status response policy | `[ ] ADAPT` | Implement as tool output text and/or context instruction; no system-prompt policy hook. |
-| Debug mode | `[ ] PORT` | Add `RESEARCH_GUARD_DEBUG=1` and compact decision explanations. |
+| `research_guard_status` tool | `[x]` | v0.5.0 status v2 includes decision buffer, config snapshot, cache stats, categories, visible effect, evidence, query debug, and source-quality fields. |
+| Status response policy | `[x]` | Tool output is diagnostic-only through schema description and structured status payload. |
+| Debug mode | `[x]` | v0.5.0 adds compact decision explanations through status v2; env-driven extra debug remains optional future polish. |
 | Tests | `[ ] PORT` | Initial dependency-free Python tests exist for the v0.4 privacy-skip port; broader OpenClaw parity coverage remains. |
 
 ## v0.2 - Provider And Search Backend Parity
@@ -98,7 +98,7 @@ Goal: avoid leaking local/private prompts into web search.
 - [x] Skip slash-command tasks unless manually forced.
 - [x] Strip speech wrappers before classification and query building.
 - [ ] ADAPT Add Hermes-specific wrapper cleanup if gateway/transcription text adds stable metadata.
-- [ ] PORT Redact prompt previews in diagnostics: emails, phone-like numbers, long tokens.
+- [x] Redact prompt previews in diagnostics: emails, phone-like numbers, long tokens.
 - [x] Document privacy implications of automatic external search.
 
 ## v0.5 - Query Quality
@@ -114,7 +114,7 @@ Goal: turn conversational prompts into search-friendly queries without losing us
 - [x] Use Hermes `conversation_history`, `messages`, or `history` for follow-up subject extraction.
 - [ ] PORT Add deterministic rewrite templates for latest/current/release/version/price prompts.
 - [ ] PORT Add official-source hints for docs, changelogs, pricing pages, government/statistics pages, and municipal facts.
-- [ ] PORT Expose original prompt, cleaned prompt, carried subject, and final query in debug/status output.
+- [x] Expose original prompt, cleaned prompt, carried subject, and final query in debug/status output.
 
 ## v0.6 - Source Quality And Confidence
 
@@ -172,9 +172,9 @@ Goal: make every Research Guard decision inspectable.
 - [x] Record reason, provider, query, model, prompt preview, cache hit, source summaries, confidence, score, usable/blocked counts, diversity, and warnings.
 - [x] Add `research_guard_status` tool.
 - [ ] ADAPT Add optional Hermes slash command `/research_guard_status` or `/rg-status`.
-- [ ] PORT Add diagnostic categories: `researched_and_injected`, `manual_research`, `researched_but_not_injected`, `checked_and_skipped`, `failed`.
-- [ ] PORT Add visible effect: `sources_injected`, `manual_tool_result`, `none`, `error`.
-- [ ] ADAPT Keep status output diagnostic-only through tool text and clear schema description.
+- [x] Add diagnostic categories: `researched_and_injected`, `manual_research`, `researched_but_not_injected`, `checked_and_skipped`, `failed`.
+- [x] Add visible effect: `sources_injected`, `manual_tool_result`, `none`, `error`.
+- [x] Keep status output diagnostic-only through tool text and clear schema description.
 - [ ] PORT Add compact non-technical explanation for "why did this run?".
 
 ## v0.10 - Cache And Performance Hardening
@@ -185,7 +185,7 @@ Goal: keep the hook fast and predictable.
 - [ ] PORT Add maximum cache size.
 - [ ] PORT Add cleanup/eviction of old entries.
 - [x] Keep provider-aware cache keys.
-- [ ] PORT Expose cache entries, TTL, hits, and misses through status/debug output.
+- [x] Expose cache entries, TTL, provider counts, and valid/expired entry counts through status output.
 - [ ] ADAPT Consider shorter TTL for current/news prompts and longer TTL for stable factual prompts.
 - [ ] PORT Bound all provider and deep-fetch calls with explicit timeouts.
 - [ ] CHECK Verify Hermes hook latency behavior in CLI and gateway sessions.
@@ -215,6 +215,7 @@ Goal: make future changes safe.
 - [x] Add tests for follow-up subject carryover.
 - [x] Add tests for source scoring and confidence gates.
 - [x] Add tests for duplicate/same-domain dampening.
+- [x] Add tests for status v2 diagnostics, prompt redaction, and query debug.
 - [ ] PORT Add fuller tests for freshness/staleness scoring.
 - [ ] PORT Add tests for provider normalization.
 - [ ] ADAPT Add integration smoke test for Hermes `pre_llm_call` context injection if a stable test harness exists.
