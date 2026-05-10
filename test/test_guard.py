@@ -441,6 +441,42 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Bei Ortsfragen", context)
         self.assertIn("Aktuelle Nutzerfrage: Wo liegt Forchheim?", context)
 
+    def test_deep_fetch_triggers_for_tracklists_and_context_includes_fetched_sources(self):
+        self.assertEqual(guard._should_deep_fetch("Wie ist die Tracklist von Meteora?")[0], True)
+        quality = guard._score_research_results(
+            [
+                {
+                    "title": "Meteora album",
+                    "url": "https://example.com/meteora",
+                    "snippet": "Album page with track listing.",
+                },
+            ],
+            "Meteora tracklist",
+        )
+        context = guard._format_context(
+            {
+                "success": True,
+                "provider": "test",
+                "query": "Meteora tracklist",
+                "results": quality["results"],
+            },
+            "general-knowledge",
+            "qwen",
+            quality,
+            "Wie ist die Tracklist von Meteora?",
+            [
+                {
+                    "title": "Meteora - Linkin Park",
+                    "url": "https://example.com/meteora",
+                    "text": "Original track listing: 1. Foreword 2. Don't Stay 3. Somewhere I Belong",
+                }
+            ],
+        )
+
+        self.assertIn("Tracklist-Pflicht", context)
+        self.assertIn("Vertiefte Quellen-Auszüge", context)
+        self.assertIn("Original track listing", context)
+
 
 if __name__ == "__main__":
     unittest.main()

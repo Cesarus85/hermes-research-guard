@@ -46,7 +46,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Follow-up source/status handling | `[x]` | Source provenance follow-ups use the in-memory Research Guard decision buffer instead of literal follow-up searches. |
 | Context/opinion follow-up guard | `[x]` | Short prompts such as "Was hältst du davon?" reuse the last Research Guard topic instead of searching the literal phrase. |
 | Follow-up subject carryover | `[x]` | v0.4.0 carries prior subjects from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative search queries. |
-| Structured deep fetch | `[ ] PORT` | Fetch top-page excerpts for detail-heavy prompts such as tracklists, tables, release notes, prices, and population facts. |
+| Structured deep fetch | `[x]` | v0.6.0 fetches readable top-source excerpts for detail-heavy prompts such as tracklists, tables, release notes, prices, and population facts. |
 | Source quality scoring | `[x]` | v0.3.0 ports official/docs/government/municipal/vendor/project/reference scoring. |
 | Confidence gating | `[x]` | v0.3.0 adds `RESEARCH_GUARD_MIN_CONFIDENCE`, usable counts, and multiple-source downgrade support. |
 | Preferred domains | `[x]` | `RESEARCH_GUARD_PREFERRED_DOMAINS` boosts trusted domains. |
@@ -138,15 +138,15 @@ Goal: only inject research context when sources are useful enough to improve the
 
 Goal: give local models enough detail for prompts where snippets are not enough.
 
-- [ ] PORT Add `RESEARCH_GUARD_DEEP_FETCH=true|false`.
-- [ ] PORT Add `RESEARCH_GUARD_DEEP_FETCH_MODE=structured|always`.
-- [ ] PORT Add `RESEARCH_GUARD_DEEP_FETCH_MAX_PAGES`, clamped 1-3.
-- [ ] PORT Add `RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS`, clamped 800-8000.
-- [ ] PORT Add `RESEARCH_GUARD_DEEP_FETCH_TIMEOUT_SECONDS`.
-- [ ] PORT Trigger deep fetch for tracklists, complete lists, tables, release notes, versions, prices, benchmarks, population, and detailed factual prompts.
+- [x] Add `RESEARCH_GUARD_DEEP_FETCH=true|false`.
+- [x] Add `RESEARCH_GUARD_DEEP_FETCH_MODE=structured|always`.
+- [x] Add `RESEARCH_GUARD_DEEP_FETCH_MAX_PAGES`, clamped 1-3.
+- [x] Add `RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS`, clamped 800-8000.
+- [x] Add `RESEARCH_GUARD_DEEP_FETCH_TIMEOUT_SECONDS`.
+- [x] Trigger deep fetch for tracklists, complete lists, tables, release notes, versions, prices, benchmarks, population, and detailed factual prompts.
 - [ ] PORT Fetch top pages in parallel with per-page timeout.
-- [ ] PORT Extract readable text from HTML and plain text responses.
-- [ ] PORT Keep fetched excerpts only for sources that passed quality scoring.
+- [x] Extract readable text from HTML and plain text responses.
+- [x] Keep fetched excerpts only for sources that passed quality scoring.
 
 ## v0.8 - Answer Discipline For Hermes Context Injection
 
@@ -171,6 +171,7 @@ Goal: make every Research Guard decision inspectable.
 - [x] Record action: `injected`, `skipped`, `failed`, and `manual_search`.
 - [x] Record reason, provider, query, model, prompt preview, cache hit, source summaries, confidence, score, usable/blocked counts, diversity, and warnings.
 - [x] Add `research_guard_status` tool.
+- [x] Add `research_guard_diagnostics` alias for status diagnostics.
 - [ ] ADAPT Add optional Hermes slash command `/research_guard_status` or `/rg-status`.
 - [x] Add diagnostic categories: `researched_and_injected`, `manual_research`, `researched_but_not_injected`, `checked_and_skipped`, `failed`.
 - [x] Add visible effect: `sources_injected`, `manual_tool_result`, `none`, `error`.

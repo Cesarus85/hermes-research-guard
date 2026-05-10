@@ -21,7 +21,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -87,6 +87,13 @@ LOCAL_OR_PRIVATE_RE = re.compile(
 CURRENT_RE = re.compile(
     r"\b(aktuell|heute|jetzt|derzeit|neueste|latest|current|news|202[4-9]|"
     r"version|release|preis|price|ceo|präsident|president|minister)\b",
+    re.IGNORECASE,
+)
+DEEP_FETCH_RE = re.compile(
+    r"\b(tracklist|trackliste|tracks?|songs?|songliste|titelliste|albumtitel|lyrics?|"
+    r"tabelle|liste|auflistung|alle|vollständig|komplett|details?|detailliert|"
+    r"release notes?|changelog|versionen|versions?|preise|pricing|benchmarks?|"
+    r"einwohner|einwohnerzahl|bevölkerung|population)\b",
     re.IGNORECASE,
 )
 LOCAL_INFRA_RE = re.compile(
@@ -889,6 +896,79 @@ def _strip_tags(value: str) -> str:
     return value
 
 
+def _html_to_readable_text(value: str) -> str:
+    text = re.sub(r"<!--[\s\S]*?-->", " ", value or "")
+    text = re.sub(r"<(script|style|noscript|svg|nav|header|footer|aside)\b[\s\S]*?</\1>", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(p|div|section|article|main|li|tr|h[1-6])>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<(br|hr)\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(r"\r", "\n", text)
+    text = re.sub(r"[ \t\f\v]+", " ", text)
+    text = re.sub(r"\n\s+", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _extract_html_title(value: str) -> str | None:
+    match = re.search(r"<title[^>]*>([\s\S]*?)</title>", value or "", flags=re.IGNORECASE)
+    title = _strip_tags(match.group(1)) if match else ""
+    return title or None
+
+
+def _should_deep_fetch(prompt: str) -> tuple[bool, str]:
+    if not _env_bool("RESEARCH_GUARD_DEEP_FETCH", True):
+        return False, "deep fetch disabled"
+    mode = os.getenv("RESEARCH_GUARD_DEEP_FETCH_MODE", "structured").strip().lower()
+    if mode == "always":
+        return True, "deep fetch mode: always"
+    if DEEP_FETCH_RE.search(prompt or ""):
+        return True, "structured-list/detail prompt"
+    return False, "no deep fetch trigger"
+
+
+def _fetch_readable_page(title: str, url: str, max_chars: int) -> dict[str, str] | None:
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            return None
+        req = Request(
+            url,
+            headers={
+                "User-Agent": "Hermes Research Guard/0.6",
+                "Accept": "text/html,text/plain;q=0.9,application/xhtml+xml;q=0.8",
+            },
+        )
+        with urlopen(req, timeout=_env_int("RESEARCH_GUARD_DEEP_FETCH_TIMEOUT", 5, 1, 12)) as resp:
+            content_type = str(resp.headers.get("content-type") or "").lower()
+            if content_type and "html" not in content_type and "text/plain" not in content_type:
+                return None
+            raw = resp.read(500_000).decode("utf-8", "ignore")
+        text = raw if "text/plain" in content_type else _html_to_readable_text(raw)
+        text = text[:max(500, max_chars)].strip()
+        if not text:
+            return None
+        return {
+            "title": _extract_html_title(raw) or title or parsed.netloc,
+            "url": url,
+            "text": text,
+        }
+    except Exception:
+        logger.debug("Could not deep-fetch source: %s", url, exc_info=True)
+        return None
+
+
+def _fetch_top_sources(results: list[dict[str, Any]]) -> list[dict[str, str]]:
+    max_pages = _env_int("RESEARCH_GUARD_DEEP_FETCH_MAX_PAGES", 2, 1, 3)
+    max_chars = _env_int("RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS", 3500, 800, 8000)
+    fetched: list[dict[str, str]] = []
+    for item in results[:max_pages]:
+        source = _fetch_readable_page(str(item.get("title") or ""), str(item.get("url") or ""), max_chars)
+        if source:
+            fetched.append(source)
+    return fetched
+
+
 def _duckduckgo_search(query: str, limit: int) -> list[dict[str, str]]:
     url = "https://html.duckduckgo.com/html/?q=" + quote_plus(query)
     req = Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Hermes Research Guard/0.1)"})
@@ -967,7 +1047,14 @@ def _search(query: str, limit: int) -> dict[str, Any]:
         return {"success": False, "provider": "none", "query": query, "results": [], "error": str(exc), "fallback_errors": errors[-2:]}
 
 
-def _format_context(payload: dict[str, Any], reason: str, model: str | None, quality: dict[str, Any] | None = None, current_prompt: str | None = None) -> str:
+def _format_context(
+    payload: dict[str, Any],
+    reason: str,
+    model: str | None,
+    quality: dict[str, Any] | None = None,
+    current_prompt: str | None = None,
+    fetched_sources: list[dict[str, str]] | None = None,
+) -> str:
     if not payload.get("success"):
         return ""
     results = quality.get("results") if quality else payload.get("results", [])
@@ -983,6 +1070,7 @@ def _format_context(payload: dict[str, Any], reason: str, model: str | None, qua
         "Beachte die Quellenbewertung. Bei niedriger Confidence antworte vorsichtig und markiere Unsicherheit ausdrücklich.",
         "Wenn die Quellen nicht reichen oder widersprüchlich sind, sag das klar. Erfinde keine Details oder Quellen.",
         "Füge keine unaufgeforderten Zusatzfakten hinzu. Bei Ortsfragen wie `Wo liegt ...?` nenne keine Flüsse, Verkehrsachsen, Einwohnerzahlen oder Entfernungen, außer sie wurden gefragt und stehen ausdrücklich in den Quellen.",
+        "Tracklist-Pflicht: Bei Tracklists, Songlisten oder Titellisten darfst du NICHT aus Such-Snippets, Streaming-Katalog-Mischungen oder Anniversary-/Bonus-Editionen synthetisieren. Nutze nur eine klar belegte Standard-/Original-Tracklist aus den vertieften Quellen-Auszügen. Wenn keine solche Liste enthalten ist, sage, dass die Quellen nicht reichen.",
         "Füge am Ende eine kurze Zeile `Quellen (Research Guard): <URL 1>, <URL 2>` an, außer der Nutzer verlangt ausdrücklich keine Quellen.",
     ]
     if quality:
@@ -1016,6 +1104,13 @@ def _format_context(payload: dict[str, Any], reason: str, model: str | None, qua
                 f"{item_quality.get('confidence')} ({item_quality.get('score')}/100; "
                 f"{item_quality.get('domain')}{signal_text}{warning_text})"
             )
+    if fetched_sources:
+        lines.extend(["", "[Research Guard: Vertiefte Quellen-Auszüge]"])
+        for idx, source in enumerate(fetched_sources, 1):
+            lines.append(f"{idx}. {source.get('title') or 'Untitled'}")
+            lines.append(f"   URL: {source.get('url') or ''}")
+            lines.append(f"   Inhalt: {source.get('text') or ''}")
+        lines.append("[/Research Guard: Vertiefte Quellen-Auszüge]")
     return "\n".join(lines)
 
 
@@ -1089,8 +1184,12 @@ def research_guard_search(args: dict, **kwargs) -> str:
         return json.dumps({"error": "query is required"}, ensure_ascii=False)
     payload = _search(query, max(1, min(limit, 10)))
     quality = _score_research_results(payload.get("results") or [], str(payload.get("query") or query)) if payload.get("success") else None
+    deep_fetch_enabled = bool(args.get("deep_fetch") or args.get("deepFetch"))
+    fetched_sources = _fetch_top_sources(quality.get("results") if quality and deep_fetch_enabled else []) if deep_fetch_enabled else []
     if quality:
         payload = {**payload, "results": quality["results"], "quality": quality}
+    if fetched_sources:
+        payload = {**payload, "fetched_sources": fetched_sources}
     _record_decision(
         "manual_search",
         "manual research_guard_search tool call",
@@ -1102,6 +1201,7 @@ def research_guard_search(args: dict, **kwargs) -> str:
         usable_result_count=quality.get("usable_result_count") if quality else None,
         blocked_result_count=quality.get("blocked_result_count") if quality else None,
         evidence_diversity=quality.get("evidence_diversity") if quality else None,
+        fetched_source_count=len(fetched_sources),
         cache_key=payload.get("cache_key"),
         cached=payload.get("cached"),
         sources=_source_summaries(payload.get("results") or []),
@@ -1183,6 +1283,8 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
     limit = _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10)
     payload = _search(query, limit)
     quality = _score_research_results(payload.get("results") or [], str(payload.get("query") or query)) if payload.get("success") else None
+    deep_fetch, deep_fetch_reason = _should_deep_fetch(_clean_message_for_research(user_message))
+    fetched_sources = _fetch_top_sources(quality.get("results") if quality and deep_fetch else []) if deep_fetch else []
     min_confidence = _parse_confidence(os.getenv("RESEARCH_GUARD_MIN_CONFIDENCE"), "low")
     if quality and not _meets_min_confidence(str(quality.get("confidence") or "low"), min_confidence):
         _record_decision(
@@ -1198,11 +1300,14 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             blocked_result_count=quality.get("blocked_result_count"),
             evidence_diversity=quality.get("evidence_diversity"),
             warnings=quality.get("warnings"),
+            deep_fetch=deep_fetch,
+            deep_fetch_reason=deep_fetch_reason,
+            fetched_source_count=len(fetched_sources),
             cache_key=payload.get("cache_key"),
             cached=payload.get("cached"),
         )
         return None
-    context = _format_context(payload, reason, model, quality, _clean_message_for_research(user_message))
+    context = _format_context(payload, reason, model, quality, _clean_message_for_research(user_message), fetched_sources)
     if not context:
         _record_decision(
             "failed",
@@ -1215,6 +1320,9 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             score=quality.get("score") if quality else None,
             usable_result_count=quality.get("usable_result_count") if quality else None,
             blocked_result_count=quality.get("blocked_result_count") if quality else None,
+            deep_fetch=deep_fetch,
+            deep_fetch_reason=deep_fetch_reason,
+            fetched_source_count=len(fetched_sources),
             cache_key=payload.get("cache_key"),
             cached=payload.get("cached"),
             error=payload.get("error"),
@@ -1236,6 +1344,9 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
         blocked_result_count=quality.get("blocked_result_count") if quality else None,
         evidence_diversity=quality.get("evidence_diversity") if quality else None,
         warnings=quality.get("warnings") if quality else None,
+        deep_fetch=deep_fetch,
+        deep_fetch_reason=deep_fetch_reason,
+        fetched_source_count=len(fetched_sources),
         sources=_source_summaries(quality.get("results") if quality else payload.get("results") or []),
     )
     return {"context": context}
@@ -1249,6 +1360,7 @@ TOOL_SCHEMA = {
         "properties": {
             "query": {"type": "string", "description": "Search query"},
             "limit": {"type": "integer", "description": "Max results, 1-10", "default": 5},
+            "deep_fetch": {"type": "boolean", "description": "Fetch readable excerpts from top results", "default": False},
         },
         "required": ["query"],
     },
@@ -1263,6 +1375,12 @@ STATUS_TOOL_SCHEMA = {
             "limit": {"type": "integer", "description": "Max recent decisions, 1-20", "default": 5},
         },
     },
+}
+
+DIAGNOSTICS_TOOL_SCHEMA = {
+    **STATUS_TOOL_SCHEMA,
+    "name": "research_guard_diagnostics",
+    "description": "Alias for research_guard_status. Show Research Guard diagnostics only: decisions, categories, visible effects, query debug, source quality, config snapshot, and cache stats.",
 }
 
 
@@ -1280,6 +1398,14 @@ def register(ctx):
         name="research_guard_status",
         toolset="research_guard",
         schema=STATUS_TOOL_SCHEMA,
+        handler=research_guard_status,
+        emoji="🧭",
+        max_result_size_chars=50_000,
+    )
+    ctx.register_tool(
+        name="research_guard_diagnostics",
+        toolset="research_guard",
+        schema=DIAGNOSTICS_TOOL_SCHEMA,
         handler=research_guard_status,
         emoji="🧭",
         max_result_size_chars=50_000,

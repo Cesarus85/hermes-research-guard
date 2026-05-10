@@ -1,3 +1,13 @@
+## 2026-05-10 - Structured Deep Fetch für Tracklists
+- **Typ:** feature/fix
+- **Auslöser:** Chat — Hermes halluzinierte bei der Meteora-Tracklist Songs von `Hybrid Theory`, obwohl Research Guard Quellen gefunden hatte.
+- **Ursache:** Snippet-only-Kontext reicht für Tracklists nicht. Das Modell mischte Standardalbum, Streaming-Kataloge und andere Editionen.
+- **Änderung:** Strukturierte/detailreiche Prompts wie Tracklists, Songlisten, Tabellen, Release Notes, Preise und Bevölkerungsdaten lösen nun Deep Fetch aus. Research Guard lädt lesbare Auszüge aus den topbewerteten Quellen und injiziert sie als `[Research Guard: Vertiefte Quellen-Auszüge]`.
+- **Antwortdisziplin:** Tracklist-Prompts enthalten jetzt eine harte Regel: keine Synthese aus Such-Snippets, Streaming-Mischungen oder Anniversary-/Bonus-Editionen; nur klar belegte Standard-/Original-Tracklists aus vertieften Auszügen verwenden oder Unsicherheit melden.
+- **Tools:** `research_guard_diagnostics` als Alias für `research_guard_status` ergänzt.
+- **Version:** Plugin-Version auf `0.6.0` erhöht.
+- **Tests:** Coverage für Deep-Fetch-Trigger und Kontext-Injektion vertiefter Quellen ergänzt.
+
 ## 2026-05-10 - Update-Installation abgesichert
 - **Typ:** fix
 - **Auslöser:** Chat — Hermes zeigte beim Installieren weiterhin `0.2.0`, obwohl das Repository `0.5.0` enthielt.

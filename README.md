@@ -54,7 +54,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.5.1
+version: 0.6.0
 ```
 
 Enable it:
@@ -89,6 +89,10 @@ Optional environment variables:
 | `RESEARCH_GUARD_BLOCKED_DOMAINS` | empty | Comma-separated domains to exclude from injected sources |
 | `RESEARCH_GUARD_MIN_CONFIDENCE` | `low` | Minimum source confidence required for injection: `low`, `medium`, or `high` |
 | `RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES` | `false` | Downgrade confidence when fewer than two usable/unique source domains pass scoring |
+| `RESEARCH_GUARD_DEEP_FETCH` | `true` | Fetch readable excerpts for structured/detail prompts such as tracklists, tables, release notes, and population facts |
+| `RESEARCH_GUARD_DEEP_FETCH_MAX_PAGES` | `2` | Number of top scored sources to fetch, clamped 1-3 |
+| `RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS` | `3500` | Characters per fetched source excerpt, clamped 800-8000 |
+| `RESEARCH_GUARD_DEEP_FETCH_TIMEOUT` | `5` | Timeout per fetched source in seconds |
 
 Built-in local model patterns include:
 
@@ -128,6 +132,12 @@ The injected context includes a `Quellenbewertung:` line with confidence, score,
 
 For location questions such as `Wo liegt Forchheim?`, the context now explicitly tells the model to answer only the location/administrative classification and avoid extra rivers, traffic routes, population numbers, distances, or unrelated details unless the user asked and the sources support them.
 
+## Structured Deep Fetch
+
+For structured prompts such as tracklists, song lists, tables, release notes, prices, benchmarks, and population facts, Research Guard fetches readable excerpts from the top scored sources and injects them under `[Research Guard: Vertiefte Quellen-Auszüge]`.
+
+Tracklist prompts have an extra rule: the model must not synthesize a list from search snippets, streaming catalog mixes, or anniversary/bonus editions. It should use only a clearly source-backed standard/original tracklist from the fetched excerpts, or say that the sources are insufficient.
+
 ## Manual opt-in / opt-out
 
 Force research:
@@ -165,6 +175,8 @@ You can also ask the model to call:
 ```text
 research_guard_status
 ```
+
+If Hermes does not surface that tool name clearly, `research_guard_diagnostics` is registered as an alias with the same output.
 
 That tool returns the recent decision buffer as JSON.
 
