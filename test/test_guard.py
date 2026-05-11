@@ -149,7 +149,13 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(guard._should_research("Was hältst du davon?"), (False, "context-followup"))
         self.assertEqual(guard._should_research("Was sagst du dazu?"), (False, "context-followup"))
         self.assertEqual(guard._should_research("Wie findest du das?"), (False, "context-followup"))
+        self.assertEqual(guard._should_research("Wie ist dein Eindruck von meiner Heimatstadt?"), (False, "context-followup"))
+        self.assertEqual(guard._should_research("Welchen Eindruck hast du von Forchheim?"), (False, "context-followup"))
         self.assertEqual(guard._should_research("/research Was hältst du davon?"), (True, "explicit"))
+
+    def test_private_possessives_do_not_trigger_research(self):
+        self.assertEqual(guard._should_research("Was ist meine Heimatstadt?"), (False, "looks-local-personal-writing-coding"))
+        self.assertEqual(guard._should_research("Wie heißt meiner Meinung nach die beste Stadt?"), (False, "looks-local-personal-writing-coding"))
 
     def test_source_followup_context_uses_last_research_decision(self):
         guard.DECISIONS.clear()
@@ -195,6 +201,8 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("https://www.ndr.de/", context)
         self.assertIn("Suche NICHT", context)
         self.assertIn("Meinung", context)
+        self.assertIn("Erfinde keine persönlichen Details", context)
+        self.assertIn("Gib keine Zeile `Quellen (Research Guard):` aus", context)
 
     def test_status_tool_reports_recent_decisions(self):
         guard.DECISIONS.clear()

@@ -56,7 +56,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.6.5
+version: 0.6.6
 ```
 
 Enable it:
@@ -204,9 +204,10 @@ Short follow-ups such as:
 Was hältst du davon?
 Was sagst du dazu?
 Wie findest du das?
+Wie ist dein Eindruck von meiner Heimatstadt?
 ```
 
-are usually about the previous topic, not standalone search queries. Research Guard therefore skips literal web searches for those phrases and injects a `[Research Guard: Kontext-Follow-up]` block instead. The block points the model at the last Research Guard query and stored URLs, and tells it to separate source-backed facts from its own opinion or assessment.
+are usually about the previous topic, not standalone search queries. Research Guard therefore skips literal web searches for those phrases and injects a `[Research Guard: Kontext-Follow-up]` block instead. The block points the model at the last Research Guard query and stored URLs, and tells it to separate source-backed facts from its own opinion or assessment. It also tells the model not to invent personal details about the user and not to emit a fresh `Quellen (Research Guard):` line for a context-only opinion follow-up.
 
 If the Hermes process was restarted or no previous Research Guard decision exists, the model is told to answer from visible conversation context only and not invent web sources.
 

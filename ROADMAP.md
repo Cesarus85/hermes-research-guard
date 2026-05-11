@@ -44,7 +44,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Speech wrapper cleanup | `[x]` | Strips `Audio:`, `Voice:`, `Transkript:`, `Sprachnachricht:` before classification and query building. |
 | OpenClaw metadata cleanup | `[ ] LIMIT` | OpenClaw-specific metadata is not relevant unless Hermes gains equivalent wrappers. |
 | Follow-up source/status handling | `[x]` | Source provenance follow-ups use the in-memory Research Guard decision buffer instead of literal follow-up searches. v0.6.4 also detects direct Research Guard status/diagnostic prompts before source-follow-up matching and prevents bare `research guard` from being treated as a source question. |
-| Context/opinion follow-up guard | `[x]` | Short prompts such as "Was hältst du davon?" reuse the last Research Guard topic instead of searching the literal phrase. |
+| Context/opinion follow-up guard | `[x]` | Short prompts such as "Was hältst du davon?" and impression prompts such as "Wie ist dein Eindruck von meiner Heimatstadt?" reuse the last Research Guard topic instead of searching the literal phrase. |
 | Follow-up subject carryover | `[x]` | v0.4.0 carries prior subjects from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative search queries. |
 | Structured deep fetch | `[x]` | v0.6.1 fetches readable top-source excerpts in parallel and extracts simple structured tracklist candidates. |
 | Source quality scoring | `[x]` | v0.3.0 ports official/docs/government/municipal/vendor/project/reference scoring. |

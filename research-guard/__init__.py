@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.6.5"
+__version__ = "0.6.6"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -98,7 +98,11 @@ CONTEXT_FOLLOWUP_RE = re.compile(
     r"was\s+hältst\s+du\s+(?:davon|darüber|dazu)"
     r"|was\s+sagst\s+du\s+(?:dazu|darüber|davon)"
     r"|wie\s+findest\s+du\s+(?:das|es|die\s+sache)"
+    r"|wie\s+ist\s+dein\s+eindruck\s+(?:davon|darüber|dazu|von\s+[\s\S]{1,80})"
+    r"|welchen\s+eindruck\s+hast\s+du\s+(?:davon|darüber|dazu|von\s+[\s\S]{1,80})"
+    r"|wie\s+wirkt\s+(?:das|es|die\s+sache|[\s\S]{1,80})\s+auf\s+dich"
     r"|was\s+meinst\s+du(?:\s+(?:dazu|darüber|davon))?"
+    r"|was\s+hältst\s+du\s+von\s+(?:meiner|unserer|dieser|der)\s+heimatstadt"
     r"|deine\s+meinung(?:\s+(?:dazu|darüber|davon))?"
     r"|was\s+ist\s+deine\s+meinung(?:\s+(?:dazu|darüber|davon))?"
     r"|what\s+do\s+you\s+think(?:\s+(?:about\s+(?:it|that|this)))?"
@@ -119,7 +123,7 @@ LOCAL_OR_PRIVATE_RE = re.compile(
     r"\b(schreib|formuliere|übersetze|translate|rewrite|korrigiere|code|"
     r"python|javascript|typescript|regex|sql|datei|file|ordner|folder|"
     r"workspace|repo|repository|git|commit|diff|log|terminal|shell|bash|zsh|"
-    r"meine|mein|unser|unsere|kalender|todo|notiz|memory|erinner|vorhin|"
+    r"mein(?:e|er|em|en|es)?|unser(?:e|er|em|en|es)?|kalender|todo|notiz|memory|erinner|vorhin|"
     r"vorher|gesagt|erwähnt|persönlich|bei mir|meine mails)\b",
     re.IGNORECASE,
 )
@@ -975,13 +979,15 @@ def _format_context_followup_context() -> str:
     decision = _last_research_decision()
     if not decision:
         return "\n".join([
-            "[Research Guard: Kontext-Follow-up]",
-            "Der Nutzer stellt eine kontextabhängige Anschlussfrage, vermutlich zum vorherigen Thema.",
-            "Es liegt in diesem Hermes-Prozess keine gespeicherte Research-Guard-Recherche mit Quellen vor.",
-            "Suche nicht nach dem Wortlaut der Anschlussfrage. Nutze nur den sichtbaren Gesprächskontext und behaupte keine neuen Webquellen.",
-            "Wenn du eine Meinung formulierst, trenne sie klar von belegten Fakten.",
-            "[/Research Guard: Kontext-Follow-up]",
-        ])
+        "[Research Guard: Kontext-Follow-up]",
+        "Der Nutzer stellt eine kontextabhängige Anschlussfrage, vermutlich zum vorherigen Thema.",
+        "Es liegt in diesem Hermes-Prozess keine gespeicherte Research-Guard-Recherche mit Quellen vor.",
+        "Suche nicht nach dem Wortlaut der Anschlussfrage. Nutze nur den sichtbaren Gesprächskontext und behaupte keine neuen Webquellen.",
+        "Wenn du eine Meinung formulierst, trenne sie klar von belegten Fakten.",
+        "Erfinde keine persönlichen Details über den Nutzer, seine Projekte, Vorlieben oder Beziehung zum Ort.",
+        "Gib keine Zeile `Quellen (Research Guard):` aus, weil für diese aktuelle Anschlussfrage keine neue Recherche lief.",
+        "[/Research Guard: Kontext-Follow-up]",
+    ])
 
     source_lines = []
     for idx, item in enumerate(decision.get("sources") or [], 1):
@@ -999,13 +1005,15 @@ def _format_context_followup_context() -> str:
         "Suche NICHT nach dem Wortlaut dieser Anschlussfrage und behaupte nicht, Research Guard habe danach gesucht.",
         "Wenn die Frage nach einer Meinung oder Einordnung fragt, antworte als Einordnung auf Basis des bisherigen Gesprächs.",
         "Trenne belegte Fakten aus den Quellen von deiner Bewertung. Erfinde keine zusätzlichen aktuellen Details.",
+        "Erfinde keine persönlichen Details über den Nutzer, seine Projekte, Vorlieben oder Beziehung zum Ort. Nutze nur explizit sichtbaren Gesprächskontext.",
+        "Gib keine Zeile `Quellen (Research Guard):` aus, weil diese Anschlussfrage keinen frischen Research-Guard-Webkontext ausgelöst hat.",
         f"Letzte Research-Guard-Aktion: {decision.get('action')}",
         f"Grund: {decision.get('reason')}",
         f"Provider: {decision.get('provider') or 'unknown'}",
         f"Query des vorherigen Themas: {decision.get('query') or 'unknown'}",
         "Quellen der letzten Research-Guard-Recherche:",
         *source_lines,
-        "Antworte direkt auf die Anschlussfrage und nenne Quellen nur, wenn sie für Fakten in der Einordnung relevant sind.",
+        "Antworte direkt auf die Anschlussfrage. Wenn du Fakten aus der letzten Recherche nutzt, erwähne sie im Fließtext als frühere Research-Guard-Basis, nicht als neue Quellenzeile.",
         "[/Research Guard: Kontext-Follow-up]",
     ])
 

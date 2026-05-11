@@ -1,3 +1,12 @@
+## 2026-05-11 - Heimatstadt-/Eindruck-Follow-ups abgesichert
+- **Typ:** fix
+- **Auslöser:** Chat — Nach `Wo liegt Forchheim?` wurde `Wie ist dein Eindruck von meiner Heimatstadt?` fälschlich als neue Websuche nach generischen Heimatstadt-Foren behandelt.
+- **Änderung:** Kontext-/Meinungs-Follow-ups erkennen jetzt Formulierungen wie `Wie ist dein Eindruck von ...`, `Welchen Eindruck hast du von ...`, `Wie wirkt ... auf dich` und `Was hältst du von meiner Heimatstadt?`.
+- **Privatsphäre:** Possessivformen wie `meiner`, `meinem`, `unserer` usw. werden als persönliche/private Prompts erkannt und ohne explizites `/research` nicht ins Web geschickt.
+- **Antwortdisziplin:** Der Kontext-Follow-up-Block verbietet erfundene persönliche Details über den Nutzer, seine Projekte, Vorlieben oder Beziehung zum Ort und untersagt eine neue `Quellen (Research Guard):`-Zeile für reine Anschluss-Meinungsfragen.
+- **Version:** Plugin-Version auf `0.6.6` erhöht.
+- **Tests:** Repro-Fall `Wie ist dein Eindruck von meiner Heimatstadt?` und private Possessivformen ergänzt.
+
 ## 2026-05-11 - Answer-Discipline und No-Research-Boundary portiert
 - **Typ:** feature/fix
 - **Auslöser:** Angleichung an OpenClaw nach Stabilisierung der Statusdiagnostik.
