@@ -1,3 +1,12 @@
+## 2026-05-11 - No-Research-Boundary standardmäßig deaktiviert
+- **Typ:** fix
+- **Auslöser:** Chat — Nach `0.6.5/0.6.6` zeigte Hermes/Qwen plötzlich sichtbares `💭 Reasoning`, weil der neue `[Research Guard inaktiv für aktuelle Frage]`-Kontext bei Skip-Turns in den Modellkontext gelangte.
+- **Ursache:** Die No-Research-Boundary war als Standard aktiv. In Hermes kann injizierter Hook-Kontext je nach Modell/UI sichtbar in Denkspuren einfließen.
+- **Änderung:** No-Research-Boundaries sind nun opt-in über `RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY=true`. Standardmäßig geben Skip-, Model-Gate-, Low-Confidence- und Search-Failure-Turns wieder keinen Kontext zurück.
+- **Beibehalten:** Aktive Research-Turns, Kontext-Follow-ups, Quellen-Follow-ups und Statusdiagnostik bleiben unverändert.
+- **Version:** Plugin-Version auf `0.6.7` erhöht.
+- **Tests:** Coverage angepasst: Skip-Turns injizieren standardmäßig nichts, Boundary kann aber per Env-Flag aktiviert werden.
+
 ## 2026-05-11 - Heimatstadt-/Eindruck-Follow-ups abgesichert
 - **Typ:** fix
 - **Auslöser:** Chat — Nach `Wo liegt Forchheim?` wurde `Wie ist dein Eindruck von meiner Heimatstadt?` fälschlich als neue Websuche nach generischen Heimatstadt-Foren behandelt.

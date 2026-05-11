@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.6.6"
+__version__ = "0.6.7"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -1355,6 +1355,12 @@ def _format_no_research_context(reason: str, current_prompt: str | None = None, 
     return "\n".join(lines)
 
 
+def _no_research_response(reason: str, current_prompt: str | None, model: str | None, provider: str | None) -> dict[str, str] | None:
+    if not _env_bool("RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY", False):
+        return None
+    return {"context": _format_no_research_context(reason, current_prompt, model, provider)}
+
+
 def _conversation_history_from_kwargs(kwargs: dict[str, Any]) -> list[Any] | None:
     for key in ("conversation_history", "messages", "history"):
         value = kwargs.get(key)
@@ -1412,6 +1418,7 @@ def _config_snapshot() -> dict[str, Any]:
         "min_confidence": _parse_confidence(os.getenv("RESEARCH_GUARD_MIN_CONFIDENCE"), "low"),
         "require_multiple_sources": _env_bool("RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES", False),
         "require_sources": _env_bool("RESEARCH_GUARD_REQUIRE_SOURCES", True),
+        "inject_no_research_boundary": _env_bool("RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY", False),
         "preferred_domains": _env_list("RESEARCH_GUARD_PREFERRED_DOMAINS"),
         "blocked_domains": _env_list("RESEARCH_GUARD_BLOCKED_DOMAINS"),
     }
@@ -1533,14 +1540,14 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             query_debug=query_debug,
             prompt=current_prompt[:180],
         )
-        return {"context": _format_no_research_context("non-local model gate", current_prompt, model, provider)}
+        return _no_research_response("non-local model gate", current_prompt, model, provider)
     if not should:
         _record_decision("skipped", reason, model=model, provider=provider, query_debug=query_debug, prompt=current_prompt[:180])
-        return {"context": _format_no_research_context(reason, current_prompt, model, provider)}
+        return _no_research_response(reason, current_prompt, model, provider)
     query = str(query_debug.get("final_query") or _build_search_query(user_message, messages))
     if not query:
         _record_decision("skipped", "empty query after cleanup", model=model, provider=provider, query_debug=query_debug)
-        return {"context": _format_no_research_context("empty query after cleanup", current_prompt, model, provider)}
+        return _no_research_response("empty query after cleanup", current_prompt, model, provider)
     deep_fetch, deep_fetch_reason = _should_deep_fetch(_clean_message_for_research(user_message))
     limit = _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10)
     payload = _search(query, limit, _deep_fetch_profile(deep_fetch))
@@ -1567,7 +1574,7 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             cache_key=payload.get("cache_key"),
             cached=payload.get("cached"),
         )
-        return {"context": _format_no_research_context(f"confidence {quality.get('confidence')} below configured minimum {min_confidence}", current_prompt, model, provider)}
+        return _no_research_response(f"confidence {quality.get('confidence')} below configured minimum {min_confidence}", current_prompt, model, provider)
     context = _format_context(payload, reason, model, quality, current_prompt, fetched_sources)
     if not context:
         _record_decision(
@@ -1589,7 +1596,7 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             error=payload.get("error"),
         )
         logger.info("research-guard search skipped/failed: %s", payload.get("error"))
-        return {"context": _format_no_research_context("search failed or returned no injectable context", current_prompt, model, provider)}
+        return _no_research_response("search failed or returned no injectable context", current_prompt, model, provider)
     _record_decision(
         "injected",
         reason,

@@ -269,14 +269,32 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Gib keine Zeile", context)
         self.assertIn("Grund: no-trigger", context)
 
-    def test_pre_hook_returns_no_research_boundary_for_skipped_prompts(self):
+    def test_no_research_response_is_opt_in(self):
+        old = os.environ.get("RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY")
+        os.environ.pop("RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY", None)
+        try:
+            self.assertIsNone(guard._no_research_response("no-trigger", "Hallo", "qwen", "ollama"))
+            os.environ["RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY"] = "true"
+            response = guard._no_research_response("no-trigger", "Hallo", "qwen", "ollama")
+            self.assertIsInstance(response, dict)
+            self.assertIn("[Research Guard inaktiv für aktuelle Frage]", response["context"])
+        finally:
+            if old is None:
+                os.environ.pop("RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY", None)
+            else:
+                os.environ["RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY"] = old
+
+    def test_pre_hook_does_not_inject_no_research_boundary_by_default(self):
         guard.DECISIONS.clear()
+        old = os.environ.get("RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY")
+        os.environ.pop("RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY", None)
+        try:
+            result = guard.pre_llm_research_guard("s1", "Hallo", "qwen", "ollama")
+        finally:
+            if old is not None:
+                os.environ["RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY"] = old
 
-        result = guard.pre_llm_research_guard("s1", "Hallo", "qwen", "ollama")
-
-        self.assertIsInstance(result, dict)
-        self.assertIn("context", result)
-        self.assertIn("[Research Guard inaktiv für aktuelle Frage]", result["context"])
+        self.assertIsNone(result)
         self.assertEqual(guard.DECISIONS[-1]["action"], "skipped")
         self.assertEqual(guard.DECISIONS[-1]["reason"], "too-short")
 

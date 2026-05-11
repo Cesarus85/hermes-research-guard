@@ -55,7 +55,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Freshness scoring | `[x]` | v0.3.0 warns/downgrades stale or undated sources for current-information queries. |
 | Strict location-answer grounding | `[x]` | Implemented inside the injected context block, because Hermes does not expose plugin system-prompt injection. |
 | Required Research Guard source line | `[x]` | v0.6.5 adds `RESEARCH_GUARD_REQUIRE_SOURCES`; default true keeps the visible `Quellen (Research Guard):` line. |
-| No-research stale-context boundary | `[x]` | v0.6.5 injects a skipped-turn boundary so local models do not reuse stale Research Guard sources. |
+| No-research stale-context boundary | `[x]` | v0.6.7 keeps this as opt-in via `RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY=true`; default false avoids visible reasoning artifacts in Hermes/Qwen setups. |
 | `research_guard_status` tool | `[x]` | v0.6.4 status v2 includes decision buffer, config snapshot, cache stats, categories, summary, legend, response policy, nested decision diagnostics, evidence, query debug, and source-quality fields. |
 | Status response policy | `[x]` | Tool output is diagnostic-only through schema description and structured status payload; v0.6.4 injects status-v2 diagnostics for direct status prompts when Hermes does not call the tool. |
 | Debug mode | `[x]` | v0.5.0 adds compact decision explanations through status v2; env-driven extra debug remains optional future polish. |

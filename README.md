@@ -56,7 +56,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.6.6
+version: 0.6.7
 ```
 
 Enable it:
@@ -92,6 +92,7 @@ Optional environment variables:
 | `RESEARCH_GUARD_MIN_CONFIDENCE` | `low` | Minimum source confidence required for injection: `low`, `medium`, or `high` |
 | `RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES` | `false` | Downgrade confidence when fewer than two usable/unique source domains pass scoring |
 | `RESEARCH_GUARD_REQUIRE_SOURCES` | `true` | Require a visible `Quellen (Research Guard):` line when fresh Research Guard sources were injected |
+| `RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY` | `false` | Opt-in only: inject an inactive-turn boundary for skipped/non-research turns. Disabled by default to avoid visible model reasoning artifacts in Hermes/Qwen setups |
 | `RESEARCH_GUARD_DEEP_FETCH` | `true` | Fetch readable excerpts for structured/detail prompts such as tracklists, tables, release notes, and population facts |
 | `RESEARCH_GUARD_DEEP_FETCH_MAX_PAGES` | `2` | Number of top scored sources to fetch, clamped 1-3 |
 | `RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS` | `3500` | Characters per fetched source excerpt, clamped 800-8000 |
