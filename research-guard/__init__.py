@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.6.7"
+__version__ = "0.6.8"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -1474,7 +1474,13 @@ def research_guard_status(args: dict, **kwargs) -> str:
     return json.dumps(
         {
             "plugin": "research-guard",
+            "version": __version__,
             "status_version": 2,
+            "runtime": {
+                "module_version": __version__,
+                "skipped_turns_inject_context_by_default": False,
+                "no_research_boundary_env": _env_bool("RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY", False),
+            },
             "config": _config_snapshot(),
             "cache": _cache_stats(),
             "status_buffer": {

@@ -1,3 +1,11 @@
+## 2026-05-11 - Runtime-Version im Status sichtbar gemacht
+- **Typ:** diagnostics
+- **Auslöser:** Chat — Trotz installierter `0.6.7` wurde bei lokalen Prompts weiterhin sichtbares Reasoning angezeigt; zur Abgrenzung zwischen installierter Datei, geladener Plugin-Instanz und Modell-/Hermes-Verhalten fehlte eine Runtime-Angabe.
+- **Änderung:** `research_guard_status` enthält jetzt `version` und `runtime.module_version` sowie `runtime.skipped_turns_inject_context_by_default=false` und den aktuellen Wert von `RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY`.
+- **Nutzen:** Im Hermes-Chat lässt sich nun prüfen, ob wirklich die neue Python-Modulversion geladen ist oder nur die `plugin.yaml` aktualisiert wurde.
+- **Version:** Plugin-Version auf `0.6.8` erhöht.
+- **Tests:** Status-Test prüft Version und Skip-Turn-Runtime-Verhalten.
+
 ## 2026-05-11 - No-Research-Boundary standardmäßig deaktiviert
 - **Typ:** fix
 - **Auslöser:** Chat — Nach `0.6.5/0.6.6` zeigte Hermes/Qwen plötzlich sichtbares `💭 Reasoning`, weil der neue `[Research Guard inaktiv für aktuelle Frage]`-Kontext bei Skip-Turns in den Modellkontext gelangte.
