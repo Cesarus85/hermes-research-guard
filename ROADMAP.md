@@ -53,9 +53,9 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Blocked domains | `[x]` | `RESEARCH_GUARD_BLOCKED_DOMAINS` excludes configured domains from injected sources. |
 | Duplicate and same-domain dampening | `[x]` | v0.3.0 dampens duplicate URLs, near-duplicate snippets, and repeated same-domain sources. |
 | Freshness scoring | `[x]` | v0.3.0 warns/downgrades stale or undated sources for current-information queries. |
-| Strict location-answer grounding | `[ ] ADAPT` | Put this in the injected context block, because Hermes does not expose plugin system-prompt injection. |
-| Required Research Guard source line | `[ ] ADAPT` | Add instruction inside context block, optionally controlled by `RESEARCH_GUARD_REQUIRE_SOURCES`. |
-| No-research stale-context boundary | `[ ] ADAPT` | Hermes context is ephemeral, but a skipped-turn boundary can still help local models. |
+| Strict location-answer grounding | `[x]` | Implemented inside the injected context block, because Hermes does not expose plugin system-prompt injection. |
+| Required Research Guard source line | `[x]` | v0.6.5 adds `RESEARCH_GUARD_REQUIRE_SOURCES`; default true keeps the visible `Quellen (Research Guard):` line. |
+| No-research stale-context boundary | `[x]` | v0.6.5 injects a skipped-turn boundary so local models do not reuse stale Research Guard sources. |
 | `research_guard_status` tool | `[x]` | v0.6.4 status v2 includes decision buffer, config snapshot, cache stats, categories, summary, legend, response policy, nested decision diagnostics, evidence, query debug, and source-quality fields. |
 | Status response policy | `[x]` | Tool output is diagnostic-only through schema description and structured status payload; v0.6.4 injects status-v2 diagnostics for direct status prompts when Hermes does not call the tool. |
 | Debug mode | `[x]` | v0.5.0 adds compact decision explanations through status v2; env-driven extra debug remains optional future polish. |
@@ -154,13 +154,13 @@ Goal: give local models enough detail for prompts where snippets are not enough.
 
 Goal: compensate for Hermes user-message injection by making the context block explicit and self-contained.
 
-- [ ] ADAPT Rewrite OpenClaw `buildSystemInstruction()` into a Hermes-safe injected instruction section.
-- [ ] ADAPT Rewrite OpenClaw `buildNoResearchSystemInstruction()` into an optional Hermes skipped-turn boundary.
-- [ ] ADAPT In injected context, require the model to answer only the current user question.
+- [x] Rewrite OpenClaw `buildSystemInstruction()` into a Hermes-safe injected instruction section.
+- [x] Rewrite OpenClaw `buildNoResearchSystemInstruction()` into an optional Hermes skipped-turn boundary.
+- [x] In injected context, require the model to answer only the current user question.
 - [x] In injected context, tell the model that Research Guard sources are evidence and should be cited when present.
-- [ ] ADAPT Require uncertainty when sources are missing, weak, stale, or contradictory.
+- [x] Require uncertainty when sources are missing, weak, stale, or contradictory.
 - [x] Add final line instruction: `Quellen (Research Guard): <URL 1>, <URL 2>`.
-- [ ] ADAPT Add `RESEARCH_GUARD_REQUIRE_SOURCES=true|false`.
+- [x] Add `RESEARCH_GUARD_REQUIRE_SOURCES=true|false`.
 - [x] Add strict location-question rule: no rivers, traffic routes, population, distances, or extra facts unless asked and source-backed.
 - [ ] LIMIT Do not attempt true plugin system-prompt injection unless Hermes exposes a supported API for it.
 

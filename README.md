@@ -18,6 +18,7 @@ It is meant for setups where models like Qwen, Llama, Mistral, Gemma, Phi, or Ol
 - Injects compact source context into the user message, not the system prompt.
 - Adds a compact confidence/evidence-diversity summary to the injected context.
 - Tells the model to cite Research Guard sources when context was injected.
+- Adds an explicit active-turn boundary when research ran, and an inactive-turn boundary when research was skipped or blocked, so old Research Guard sources are not reused for later answers.
 - Keeps a small in-memory decision buffer so source follow-ups such as `Wo hast du die Info her?` can be answered from the previous Research Guard decision instead of triggering a fresh search for the follow-up itself.
 - Detects context/opinion follow-ups such as `Was hältst du davon?` and reuses the last Research Guard topic instead of searching the literal follow-up phrase.
 - Carries a prior subject from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative follow-up search queries such as `Was ist mit ihm danach passiert?`.
@@ -55,7 +56,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.6.4
+version: 0.6.5
 ```
 
 Enable it:
@@ -90,6 +91,7 @@ Optional environment variables:
 | `RESEARCH_GUARD_BLOCKED_DOMAINS` | empty | Comma-separated domains to exclude from injected sources |
 | `RESEARCH_GUARD_MIN_CONFIDENCE` | `low` | Minimum source confidence required for injection: `low`, `medium`, or `high` |
 | `RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES` | `false` | Downgrade confidence when fewer than two usable/unique source domains pass scoring |
+| `RESEARCH_GUARD_REQUIRE_SOURCES` | `true` | Require a visible `Quellen (Research Guard):` line when fresh Research Guard sources were injected |
 | `RESEARCH_GUARD_DEEP_FETCH` | `true` | Fetch readable excerpts for structured/detail prompts such as tracklists, tables, release notes, and population facts |
 | `RESEARCH_GUARD_DEEP_FETCH_MAX_PAGES` | `2` | Number of top scored sources to fetch, clamped 1-3 |
 | `RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS` | `3500` | Characters per fetched source excerpt, clamped 800-8000 |

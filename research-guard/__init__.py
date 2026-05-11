@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.6.4"
+__version__ = "0.6.5"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -1255,18 +1255,31 @@ def _format_context(
     if quality and not results:
         return ""
     lines = [
-        "[Research Guard: automatische Webrecherche vor Antwort]",
+        "[Research Guard aktiv]",
+        "Für diese aktuelle Nutzerfrage wurde automatisch Web-Recherche ausgeführt.",
+        "Diese Research-Guard-Anweisung gilt nur für diesen aktuellen Turn mit frisch angehängtem `[Research Guard: Web-Recherche-Kontext]`.",
+        "Research-Guard-Kontexte, Quellenlisten, Statusdaten oder Diagnoseblöcke aus früheren Turns sind für die aktuelle Antwort ungültig.",
+        "Beantworte ausschließlich die aktuelle Nutzerfrage. Wiederhole, aktualisiere oder fasse keine frühere Antwort zusammen, außer der Nutzer fordert das ausdrücklich.",
+        "Du MUSST faktische Aussagen auf den folgenden Research-Guard-Kontext stützen, wenn die Quellen die Frage beantworten.",
+        "Behaupte niemals, du hättest nicht recherchiert, die Antwort stamme nur aus Trainingswissen oder Websuche sei unnötig, wenn Research-Guard-Quellen vorhanden sind.",
+        "[/Research Guard aktiv]",
+        "",
+        "[Research Guard: Web-Recherche-Kontext]",
         f"Auslöser: {reason}; Modell: {model or 'unknown'}; Provider: {payload.get('provider')}; Query: {payload.get('query')}",
         "Diese Quellen wurden automatisch durch Research Guard für die aktuelle Nutzerfrage recherchiert.",
-        "Beantworte ausschließlich die aktuelle Nutzerfrage. Wiederhole keine frühere Antwort, außer der Nutzer fordert das ausdrücklich.",
+        "Aktuelle-Frage-Pflicht: Beantworte nur die aktuelle Nutzerfrage. Wiederhole keine vorherige Antwort und beantworte keine frühere Nutzerfrage erneut, außer der Nutzer verlangt es ausdrücklich.",
         "Nutze die Quellen unten für faktische Aussagen. Antworte nicht nur aus Trainingswissen, wenn diese Quellen passen.",
         "Wenn der Nutzer später fragt, woher die Info stammt oder wie die Antwort zustande kam, nenne Research Guard und die URLs aus diesem Kontext.",
         "Beachte die Quellenbewertung. Bei niedriger Confidence antworte vorsichtig und markiere Unsicherheit ausdrücklich.",
         "Wenn die Quellen nicht reichen oder widersprüchlich sind, sag das klar. Erfinde keine Details oder Quellen.",
         "Füge keine unaufgeforderten Zusatzfakten hinzu. Bei Ortsfragen wie `Wo liegt ...?` nenne keine Flüsse, Verkehrsachsen, Einwohnerzahlen oder Entfernungen, außer sie wurden gefragt und stehen ausdrücklich in den Quellen.",
         "Tracklist-Pflicht: Bei Tracklists, Songlisten oder Titellisten darfst du NICHT aus Such-Snippets, Streaming-Katalog-Mischungen oder Anniversary-/Bonus-Editionen synthetisieren. Nutze nur eine klar belegte Standard-/Original-Tracklist aus den vertieften Quellen-Auszügen. Wenn keine solche Liste enthalten ist, sage, dass die Quellen nicht reichen.",
-        "Füge am Ende eine kurze Zeile `Quellen (Research Guard): <URL 1>, <URL 2>` an, außer der Nutzer verlangt ausdrücklich keine Quellen.",
     ]
+    if _env_bool("RESEARCH_GUARD_REQUIRE_SOURCES", True):
+        lines.append("Quellenpflicht: Füge am Ende eine kurze Zeile `Quellen (Research Guard): <URL 1>, <URL 2>` mit 1-2 passenden URLs aus dieser Liste an, außer der Nutzer verlangt ausdrücklich keine Quellen.")
+        lines.append("Sichtbarkeitspflicht: Wenn diese Quellen vorhanden sind, darf die Antwort nicht ohne `Quellen (Research Guard):`-Zeile enden.")
+    else:
+        lines.append("Nenne Research-Guard-Quellen, wenn sie für die Antwort hilfreich sind oder der Nutzer nach Quellen fragt.")
     if quality:
         lines.append(
             "Quellenbewertung: "
@@ -1310,6 +1323,27 @@ def _format_context(
                     lines.append(f"   {item.get('number')}. {item.get('title')}")
             lines.append(f"   Inhalt: {source.get('text') or ''}")
         lines.append("[/Research Guard: Vertiefte Quellen-Auszüge]")
+    lines.append("[/Research Guard: Web-Recherche-Kontext]")
+    return "\n".join(lines)
+
+
+def _format_no_research_context(reason: str, current_prompt: str | None = None, model: str | None = None, provider: str | None = None) -> str:
+    lines = [
+        "[Research Guard inaktiv für aktuelle Frage]",
+        "Für diese aktuelle Nutzerfrage wurde KEIN neuer Research-Guard-Webkontext injiziert.",
+        "Ignoriere alle `[Research Guard: Web-Recherche-Kontext]`, `[Research Guard: Vertiefte Quellen-Auszüge]`, `[Research Guard: Quellenstatus]`, `[Research Guard: Diagnose-Status]` und `Quellen (Research Guard):`-Angaben aus früheren Turns vollständig.",
+        "Sie gelten nur für die jeweilige frühere Nutzerfrage und dürfen für diese Antwort nicht als aktuelle Quellen wiederverwendet werden.",
+        "Beantworte ausschließlich die aktuelle Nutzerfrage. Wiederhole, aktualisiere oder fasse keine frühere Antwort zusammen, außer der Nutzer fordert das ausdrücklich.",
+        "Gib keine Zeile `Quellen (Research Guard):` aus, solange in diesem aktuellen Turn kein frischer Research-Guard-Kontext angehängt ist.",
+        "Behaupte nicht, Research Guard habe für diese aktuelle Frage recherchiert.",
+        "Wenn die aktuelle Frage lokale Infrastruktur, IPs, Hosts, SSH, Tailscale oder interne Verbindungen betrifft, nutze nur lokalen Kontext oder verfügbare lokale Tools, nicht Webquellen.",
+        f"Grund: {reason}",
+    ]
+    if model or provider:
+        lines.append(f"Modell/Provider: {model or 'unknown'} / {provider or 'unknown'}")
+    if current_prompt:
+        lines.append(f"Aktuelle Nutzerfrage: {current_prompt}")
+    lines.append("[/Research Guard inaktiv für aktuelle Frage]")
     return "\n".join(lines)
 
 
@@ -1369,6 +1403,7 @@ def _config_snapshot() -> dict[str, Any]:
         "max_results": _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10),
         "min_confidence": _parse_confidence(os.getenv("RESEARCH_GUARD_MIN_CONFIDENCE"), "low"),
         "require_multiple_sources": _env_bool("RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES", False),
+        "require_sources": _env_bool("RESEARCH_GUARD_REQUIRE_SOURCES", True),
         "preferred_domains": _env_list("RESEARCH_GUARD_PREFERRED_DOMAINS"),
         "blocked_domains": _env_list("RESEARCH_GUARD_BLOCKED_DOMAINS"),
     }
@@ -1465,6 +1500,7 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
     provider = _provider_from_context(platform, kwargs)
     messages = _conversation_history_from_kwargs(kwargs)
     query_debug = _query_debug(user_message, messages)
+    current_prompt = _clean_message_for_research(user_message)[:240]
     if not _env_bool("RESEARCH_GUARD_ENABLED", True):
         _record_decision("skipped", "plugin disabled", model=model, provider=provider, query_debug=query_debug)
         return None
@@ -1487,16 +1523,16 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
                 "classification": {"should_research": should, "reason": reason},
             },
             query_debug=query_debug,
-            prompt=_clean_message_for_research(user_message)[:180],
+            prompt=current_prompt[:180],
         )
-        return None
+        return {"context": _format_no_research_context("non-local model gate", current_prompt, model, provider)}
     if not should:
-        _record_decision("skipped", reason, model=model, provider=provider, query_debug=query_debug, prompt=_clean_message_for_research(user_message)[:180])
-        return None
+        _record_decision("skipped", reason, model=model, provider=provider, query_debug=query_debug, prompt=current_prompt[:180])
+        return {"context": _format_no_research_context(reason, current_prompt, model, provider)}
     query = str(query_debug.get("final_query") or _build_search_query(user_message, messages))
     if not query:
         _record_decision("skipped", "empty query after cleanup", model=model, provider=provider, query_debug=query_debug)
-        return None
+        return {"context": _format_no_research_context("empty query after cleanup", current_prompt, model, provider)}
     deep_fetch, deep_fetch_reason = _should_deep_fetch(_clean_message_for_research(user_message))
     limit = _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10)
     payload = _search(query, limit, _deep_fetch_profile(deep_fetch))
@@ -1523,8 +1559,8 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             cache_key=payload.get("cache_key"),
             cached=payload.get("cached"),
         )
-        return None
-    context = _format_context(payload, reason, model, quality, _clean_message_for_research(user_message), fetched_sources)
+        return {"context": _format_no_research_context(f"confidence {quality.get('confidence')} below configured minimum {min_confidence}", current_prompt, model, provider)}
+    context = _format_context(payload, reason, model, quality, current_prompt, fetched_sources)
     if not context:
         _record_decision(
             "failed",
@@ -1545,7 +1581,7 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             error=payload.get("error"),
         )
         logger.info("research-guard search skipped/failed: %s", payload.get("error"))
-        return None
+        return {"context": _format_no_research_context("search failed or returned no injectable context", current_prompt, model, provider)}
     _record_decision(
         "injected",
         reason,

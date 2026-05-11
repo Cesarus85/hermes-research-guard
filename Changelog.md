@@ -1,3 +1,12 @@
+## 2026-05-11 - Answer-Discipline und No-Research-Boundary portiert
+- **Typ:** feature/fix
+- **Auslöser:** Angleichung an OpenClaw nach Stabilisierung der Statusdiagnostik.
+- **Änderung:** Aktive Research-Turns enthalten jetzt eine OpenClaw-nähere `[Research Guard aktiv]`-Klammer plus `[Research Guard: Web-Recherche-Kontext]`. Der Kontext erklärt explizit, dass frühere Research-Guard-Kontexte, Quellenlisten, Statusdaten und Diagnoseblöcke für den aktuellen Turn ungültig sind.
+- **No-Research-Boundary:** Skipped-, Model-Gate-, Low-Confidence- und Search-Failure-Turns injizieren jetzt `[Research Guard inaktiv für aktuelle Frage]`, damit lokale Modelle keine alten `Quellen (Research Guard):`-Zeilen wiederverwenden oder behaupten, Research Guard habe für die aktuelle Frage recherchiert.
+- **Konfiguration:** `RESEARCH_GUARD_REQUIRE_SOURCES=true|false` ergänzt; Standard bleibt `true`.
+- **Version:** Plugin-Version auf `0.6.5` erhöht.
+- **Tests:** Coverage für aktive Turn-Boundary, inaktive No-Research-Boundary und Pre-Hook-Skip-Kontext ergänzt.
+
 ## 2026-05-10 - Statusdiagnostik näher an OpenClaw angeglichen
 - **Typ:** feature/fix
 - **Auslöser:** Chat — Hermes gab zwar Statusdaten aus, formte sie aber frei um, hängte eine eigene Zusammenfassung an und zeigte interne Hermes-Notizen als recherchierte Queries.

@@ -219,6 +219,59 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Status-JSON BEGIN", context)
         self.assertIn("Benenne Felder nicht um", context)
 
+    def test_active_research_context_has_turn_boundary_and_required_sources(self):
+        payload = {
+            "success": True,
+            "provider": "hermes-web",
+            "query": "Wo liegt Forchheim?",
+            "results": [
+                {
+                    "title": "Forchheim",
+                    "url": "https://example.com/forchheim",
+                    "snippet": "Forchheim liegt in Oberfranken.",
+                }
+            ],
+        }
+        quality = {
+            "confidence": "medium",
+            "score": 60,
+            "usable_result_count": 1,
+            "result_count": 1,
+            "evidence_diversity": "low",
+            "unique_domain_count": 1,
+            "duplicate_cluster_count": 0,
+            "warnings": [],
+            "results": payload["results"],
+        }
+
+        context = guard._format_context(payload, "factual-question", "qwen", quality, "Wo liegt Forchheim?")
+
+        self.assertIn("[Research Guard aktiv]", context)
+        self.assertIn("[Research Guard: Web-Recherche-Kontext]", context)
+        self.assertIn("Research-Guard-Kontexte, Quellenlisten, Statusdaten oder Diagnoseblöcke aus früheren Turns", context)
+        self.assertIn("Quellenpflicht", context)
+        self.assertIn("[/Research Guard: Web-Recherche-Kontext]", context)
+
+    def test_no_research_context_invalidates_stale_research_sources(self):
+        context = guard._format_no_research_context("no-trigger", "Hallo", "qwen", "ollama")
+
+        self.assertIn("[Research Guard inaktiv für aktuelle Frage]", context)
+        self.assertIn("KEIN neuer Research-Guard-Webkontext", context)
+        self.assertIn("Quellen (Research Guard)", context)
+        self.assertIn("Gib keine Zeile", context)
+        self.assertIn("Grund: no-trigger", context)
+
+    def test_pre_hook_returns_no_research_boundary_for_skipped_prompts(self):
+        guard.DECISIONS.clear()
+
+        result = guard.pre_llm_research_guard("s1", "Hallo", "qwen", "ollama")
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("context", result)
+        self.assertIn("[Research Guard inaktiv für aktuelle Frage]", result["context"])
+        self.assertEqual(guard.DECISIONS[-1]["action"], "skipped")
+        self.assertEqual(guard.DECISIONS[-1]["reason"], "too-short")
+
     def test_status_v2_adds_categories_evidence_and_redacted_prompt_preview(self):
         guard.DECISIONS.clear()
         guard._record_decision(
