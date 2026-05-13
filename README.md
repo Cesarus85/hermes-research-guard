@@ -56,7 +56,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.6.8
+version: 0.7.0
 ```
 
 Enable it:
@@ -84,6 +84,9 @@ Optional environment variables:
 | `RESEARCH_GUARD_ONLY_LOCAL` | `true` | Only trigger for local/small model names |
 | `RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS` | `false` | Allow automatic research for cloud models when a prompt would otherwise trigger research |
 | `RESEARCH_GUARD_LOCAL_PATTERNS` | built-in list | Comma-separated model-name patterns |
+| `RESEARCH_GUARD_PROVIDER` | `auto` | Search provider: `auto`, `web_search_plus`, `brave`, `hermes`, `duckduckgo`, or `searxng` |
+| `BRAVE_API_KEY` / `RESEARCH_GUARD_BRAVE_API_KEY` | empty | Brave Search API key for the `brave` provider or `auto` chain |
+| `RESEARCH_GUARD_SEARXNG_URL` | empty | Base URL for a SearXNG instance, used by the `searxng` provider or optional `auto` fallback |
 | `RESEARCH_GUARD_MAX_RESULTS` | `5` | Search results to inject, clamped 1-10 |
 | `RESEARCH_GUARD_TIMEOUT` | `8` | DuckDuckGo fallback timeout in seconds |
 | `RESEARCH_GUARD_CACHE_TTL_SECONDS` | `3600` | Query cache TTL |
@@ -242,11 +245,9 @@ Wie ist der Status der Verbindung zu Goliath?
 
 ## Search backend
 
-Research Guard first tries Hermes' built-in `tools.web_tools.web_search_tool`.
+Research Guard uses `RESEARCH_GUARD_PROVIDER` to choose the search path. The default `auto` chain tries optional `web_search_plus`, then Brave when an API key is configured, then Hermes' built-in `tools.web_tools.web_search_tool`, then SearXNG when a URL is configured, and finally DuckDuckGo's HTML endpoint.
 
-If that is unavailable or misconfigured, it falls back to DuckDuckGo's HTML endpoint and parses compact result metadata.
-
-The query cache key includes provider, result count, a reserved deep-fetch flag, and normalized query text so fallback-provider results do not collide with Hermes-provider results.
+All providers are normalized into `{title, url, snippet, age}` when possible. The query cache key includes provider, result count, deep-fetch profile, and normalized query text so fallback-provider results do not collide with Hermes-provider results.
 
 ## Development notes
 

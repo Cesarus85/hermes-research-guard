@@ -494,7 +494,9 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
     def test_provider_aware_cache_key_contains_provider_and_query_shape(self):
         old_cache = os.environ.get("RESEARCH_GUARD_CACHE_TTL_SECONDS")
+        old_provider = os.environ.get("RESEARCH_GUARD_PROVIDER")
         os.environ["RESEARCH_GUARD_CACHE_TTL_SECONDS"] = "3600"
+        os.environ.pop("RESEARCH_GUARD_PROVIDER", None)
         original_load = guard._load_cache
         original_save = guard._save_cache
         original_duck = guard._duckduckgo_search
@@ -523,10 +525,97 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
                 os.environ.pop("RESEARCH_GUARD_CACHE_TTL_SECONDS", None)
             else:
                 os.environ["RESEARCH_GUARD_CACHE_TTL_SECONDS"] = old_cache
+            if old_provider is None:
+                os.environ.pop("RESEARCH_GUARD_PROVIDER", None)
+            else:
+                os.environ["RESEARCH_GUARD_PROVIDER"] = old_provider
 
         self.assertTrue(payload["cached"])
         self.assertEqual(payload["provider"], "duckduckgo-html")
         self.assertEqual(payload["cache_key"], "provider=duckduckgo-html:limit=3:deep=off:query=forchheim")
+
+    def test_provider_order_honors_configuration_and_optional_providers(self):
+        old_provider = os.environ.get("RESEARCH_GUARD_PROVIDER")
+        old_brave = os.environ.get("BRAVE_API_KEY")
+        old_searx = os.environ.get("RESEARCH_GUARD_SEARXNG_URL")
+        original_wsp = guard._web_search_plus_available
+        try:
+            os.environ["RESEARCH_GUARD_PROVIDER"] = "brave"
+            self.assertEqual(guard._provider_order(), ["brave"])
+
+            os.environ["RESEARCH_GUARD_PROVIDER"] = "auto"
+            os.environ["BRAVE_API_KEY"] = "test-key"
+            os.environ["RESEARCH_GUARD_SEARXNG_URL"] = "https://searx.example"
+            guard._web_search_plus_available = lambda: True
+            self.assertEqual(
+                guard._provider_order(),
+                ["web_search_plus", "brave", "hermes", "searxng", "duckduckgo"],
+            )
+        finally:
+            guard._web_search_plus_available = original_wsp
+            if old_provider is None:
+                os.environ.pop("RESEARCH_GUARD_PROVIDER", None)
+            else:
+                os.environ["RESEARCH_GUARD_PROVIDER"] = old_provider
+            if old_brave is None:
+                os.environ.pop("BRAVE_API_KEY", None)
+            else:
+                os.environ["BRAVE_API_KEY"] = old_brave
+            if old_searx is None:
+                os.environ.pop("RESEARCH_GUARD_SEARXNG_URL", None)
+            else:
+                os.environ["RESEARCH_GUARD_SEARXNG_URL"] = old_searx
+
+    def test_search_falls_back_through_configured_provider_chain(self):
+        original_load = guard._load_cache
+        original_save = guard._save_cache
+        original_order = guard._provider_order
+        original_run = guard._run_provider
+        try:
+            guard._load_cache = lambda: {}
+            guard._save_cache = lambda cache: None
+            guard._provider_order = lambda: ["brave", "duckduckgo"]
+
+            def fake_run(provider, query, limit):
+                if provider == "brave":
+                    raise RuntimeError("missing key")
+                return [{"title": "Fallback", "url": "https://example.com", "snippet": "ok", "age": "2026-05-13"}]
+
+            guard._run_provider = fake_run
+            payload = guard._search("Forchheim", 3)
+        finally:
+            guard._load_cache = original_load
+            guard._save_cache = original_save
+            guard._provider_order = original_order
+            guard._run_provider = original_run
+
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["provider"], "duckduckgo-html")
+        self.assertEqual(payload["provider_chain"], ["brave", "duckduckgo-html"])
+        self.assertIn("brave: missing key", payload["fallback_errors"])
+        self.assertEqual(payload["results"][0]["age"], "2026-05-13")
+
+    def test_search_result_normalization_supports_common_provider_shapes(self):
+        results = guard._extract_web_results(
+            {
+                "data": {
+                    "web": [
+                        {
+                            "name": "Example <b>Title</b>",
+                            "link": "https://example.com",
+                            "description": "Example <em>snippet</em>",
+                            "published": "2026-05-13",
+                        }
+                    ]
+                }
+            },
+            5,
+        )
+
+        self.assertEqual(results[0]["title"], "Example Title")
+        self.assertEqual(results[0]["url"], "https://example.com")
+        self.assertEqual(results[0]["snippet"], "Example snippet")
+        self.assertEqual(results[0]["age"], "2026-05-13")
 
     def test_injected_context_includes_quality_and_location_discipline(self):
         quality = guard._score_research_results(

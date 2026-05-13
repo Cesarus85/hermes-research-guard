@@ -32,10 +32,10 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Manual `#no-research` / `/no-research` skip prefix | `[x]` | Present and consistent. |
 | Basic local model detection | `[x]` | Present, but OpenClaw has stronger provider-aware logic. |
 | Provider-aware local/cloud model gate | `[x]` | v0.4.0 adds local/cloud provider patterns, explicit `:cloud` handling, and `RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS`. |
-| Brave Search provider | `[ ] PORT` | Add direct Brave API via `BRAVE_API_KEY`. |
+| Brave Search provider | `[x]` | v0.7.0 adds direct Brave API via `BRAVE_API_KEY` / `RESEARCH_GUARD_BRAVE_API_KEY`. |
 | OpenClaw web-search registry integration | `[ ] ADAPT` | Replace with Hermes tool dispatch or built-in `tools.web_tools` / `web_search` path. |
 | DuckDuckGo HTML fallback | `[x]` | Present; keep as final fallback. |
-| Provider fallback chain | `[ ] ADAPT` | Preferred Hermes order: optional `web_search_plus`, direct Brave, Hermes built-in web search, DuckDuckGo/SearXNG. |
+| Provider fallback chain | `[x]` | v0.7.0 adds `RESEARCH_GUARD_PROVIDER` and auto order: optional `web_search_plus`, Brave, Hermes built-in web search, optional SearXNG, DuckDuckGo. |
 | Query cache with TTL | `[x]` | Present, file-backed. Needs provider-aware keys and cache cleanup. |
 | Provider-aware cache keys | `[x]` | v0.4.0 cache keys include provider, result count, reserved deep-fetch flag, and normalized query text. |
 | Trigger heuristics for factual/current questions | `[x]` | Present in simpler form. Port the expanded German/English rules. |
@@ -65,13 +65,13 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 
 Goal: make Hermes Research Guard search through the best available provider path, while retaining a no-key fallback.
 
-- [ ] PORT Add first-class Brave Search support via `BRAVE_API_KEY`.
-- [ ] PORT Add `RESEARCH_GUARD_PROVIDER=auto|brave|hermes|duckduckgo|searxng`.
-- [ ] ADAPT Detect and optionally use `web_search_plus` when installed.
-- [ ] ADAPT Prefer Hermes built-in web search through safe tool dispatch where available.
-- [ ] PORT Keep DuckDuckGo HTML as final fallback.
-- [ ] PORT Normalize all provider results into `{title, url, snippet, age}`.
-- [ ] PORT Surface provider name, fallback path, and errors in debug/status output.
+- [x] Add first-class Brave Search support via `BRAVE_API_KEY`.
+- [x] Add `RESEARCH_GUARD_PROVIDER=auto|web_search_plus|brave|hermes|duckduckgo|searxng`.
+- [x] Detect and optionally use `web_search_plus` when installed.
+- [x] Prefer Hermes built-in web search through safe tool dispatch where available.
+- [x] Keep DuckDuckGo HTML as final fallback.
+- [x] Normalize all provider results into `{title, url, snippet, age}`.
+- [x] Surface provider name, fallback path, and errors in debug/status output.
 - [x] Make cache keys provider-aware.
 - [x] Include search count, deep-fetch state, and provider in cache keys.
 

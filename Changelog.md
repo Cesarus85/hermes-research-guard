@@ -1,3 +1,13 @@
+## 2026-05-13 - Provider-Kette und Brave/SearXNG ergänzt
+- **Typ:** feature
+- **Auslöser:** Angleichung an OpenClaw Provider-/Suchbackend-Parität.
+- **Änderung:** `RESEARCH_GUARD_PROVIDER=auto|web_search_plus|brave|hermes|duckduckgo|searxng` ergänzt. `auto` probiert optional `web_search_plus`, dann Brave bei gesetztem API-Key, Hermes Web Search, optional SearXNG und zuletzt DuckDuckGo HTML.
+- **Provider:** Brave Search läuft über `BRAVE_API_KEY` oder `RESEARCH_GUARD_BRAVE_API_KEY`; SearXNG über `RESEARCH_GUARD_SEARXNG_URL`.
+- **Normalisierung:** Provider-Ergebnisse werden zentral auf `{title, url, snippet, age}` normalisiert, inklusive citation-only/web/result/data-Wrappern.
+- **Diagnostik:** Search-Payloads und Entscheidungen enthalten `provider_chain`; Fallback-Fehler werden beibehalten und Status/config zeigen die aktive Provider-Konfiguration.
+- **Version:** Plugin-Version auf `0.7.0` erhöht.
+- **Tests:** Coverage für Provider-Reihenfolge, Fallbackpfad und Result-Normalisierung ergänzt.
+
 ## 2026-05-11 - Runtime-Version im Status sichtbar gemacht
 - **Typ:** diagnostics
 - **Auslöser:** Chat — Trotz installierter `0.6.7` wurde bei lokalen Prompts weiterhin sichtbares Reasoning angezeigt; zur Abgrenzung zwischen installierter Datei, geladener Plugin-Instanz und Modell-/Hermes-Verhalten fehlte eine Runtime-Angabe.

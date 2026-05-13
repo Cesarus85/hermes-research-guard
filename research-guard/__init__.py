@@ -8,6 +8,7 @@ source context into the user message.
 from __future__ import annotations
 
 import html
+import importlib.util
 import json
 import logging
 import os
@@ -22,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.6.8"
+__version__ = "0.7.0"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -177,6 +178,11 @@ def _env_list(name: str) -> list[str]:
     value = os.getenv(name, "")
     items = [_normalize_hostname(part) for part in value.split(",")]
     return [item for item in items if item]
+
+
+def _env_choice(name: str, default: str, allowed: set[str]) -> str:
+    value = os.getenv(name, default).strip().lower()
+    return value if value in allowed else default
 
 
 def _is_local_or_small_model(model: str | None, provider: str | None = None) -> bool:
@@ -482,6 +488,8 @@ def _provider_path(provider: str | None) -> str | None:
         return None
     if provider == "hermes-web" or provider.startswith("hermes"):
         return f"Hermes Web Search -> {provider}"
+    if provider == "web-search-plus":
+        return "Hermes web_search_plus -> web-search-plus"
     return f"Research Guard direct fallback -> {provider}"
 
 
@@ -525,6 +533,7 @@ def _diagnose_decision(decision: dict[str, Any]) -> dict[str, Any]:
     evidence = [f"action={decision.get('action')}", f"reason={decision.get('reason')}"]
     for field, label in (
         ("provider", "provider"),
+        ("provider_chain", "providerChain"),
         ("query", "query"),
         ("fetched_source_count", "fetched"),
         ("confidence", "confidence"),
@@ -593,6 +602,8 @@ def _source_summaries(results: list[dict[str, Any]], limit: int = 5) -> list[dic
             "url": str(item.get("url") or "")[:300],
             "snippet": str(item.get("snippet") or "")[:300],
         }
+        if item.get("age"):
+            summary["age"] = str(item.get("age"))[:120]
         quality = item.get("quality")
         if isinstance(quality, dict):
             summary["quality"] = {
@@ -1196,57 +1207,234 @@ def _duckduckgo_search(query: str, limit: int) -> list[dict[str, str]]:
     return results
 
 
+def _normalize_search_result(item: Any) -> dict[str, str] | None:
+    if not isinstance(item, dict):
+        return None
+    title = (
+        item.get("title")
+        or item.get("name")
+        or item.get("headline")
+        or item.get("displayTitle")
+        or "Untitled"
+    )
+    url = item.get("url") or item.get("link") or item.get("href") or item.get("uri") or ""
+    snippet = (
+        item.get("snippet")
+        or item.get("description")
+        or item.get("desc")
+        or item.get("summary")
+        or item.get("content")
+        or item.get("text")
+        or ""
+    )
+    age = item.get("age") or item.get("published") or item.get("published_at") or item.get("date") or item.get("updated") or ""
+    url = str(url).strip()
+    if not url:
+        return None
+    result = {
+        "title": _strip_tags(str(title))[:220] or "Untitled",
+        "url": url[:500],
+        "snippet": _strip_tags(str(snippet))[:600],
+    }
+    if age:
+        result["age"] = str(age)[:120]
+    return result
+
+
+def _normalize_search_results(items: Any, limit: int) -> list[dict[str, str]]:
+    if not isinstance(items, list):
+        return []
+    results: list[dict[str, str]] = []
+    for item in items:
+        normalized = _normalize_search_result(item)
+        if normalized:
+            results.append(normalized)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _parse_jsonish(value: Any) -> Any:
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return value
+    return value
+
+
+def _extract_web_results(data: Any, limit: int) -> list[dict[str, str]]:
+    data = _parse_jsonish(data)
+    if isinstance(data, dict):
+        if isinstance(data.get("data"), dict):
+            nested = data["data"]
+            for key in ("web", "results", "items"):
+                results = _normalize_search_results(nested.get(key), limit)
+                if results:
+                    return results
+        for key in ("web", "results", "items"):
+            results = _normalize_search_results(data.get(key), limit)
+            if results:
+                return results
+        if isinstance(data.get("result"), dict):
+            results = _extract_web_results(data["result"], limit)
+            if results:
+                return results
+        if isinstance(data.get("citations"), list):
+            content = str(data.get("content") or data.get("answer") or "")
+            return _normalize_search_results(
+                [{"title": urlparse(str(url)).netloc or str(url), "url": str(url), "snippet": content} for url in data["citations"]],
+                limit,
+            )
+    if isinstance(data, list):
+        return _normalize_search_results(data, limit)
+    return []
+
+
+def _brave_search(query: str, limit: int) -> list[dict[str, str]]:
+    api_key = os.getenv("BRAVE_API_KEY") or os.getenv("RESEARCH_GUARD_BRAVE_API_KEY")
+    if not api_key:
+        raise RuntimeError("BRAVE_API_KEY is not set")
+    url = "https://api.search.brave.com/res/v1/web/search?q=" + quote_plus(query) + f"&count={max(1, min(limit, 10))}"
+    req = Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "X-Subscription-Token": api_key,
+            "User-Agent": "Hermes Research Guard/0.6",
+        },
+    )
+    with urlopen(req, timeout=_env_int("RESEARCH_GUARD_TIMEOUT", 8, 2, 20)) as resp:
+        data = json.loads(resp.read(500_000).decode("utf-8", "ignore"))
+    return _extract_web_results(data.get("web", {}).get("results") if isinstance(data, dict) else data, limit)
+
+
+def _searxng_search(query: str, limit: int) -> list[dict[str, str]]:
+    base_url = os.getenv("RESEARCH_GUARD_SEARXNG_URL", "").strip().rstrip("/")
+    if not base_url:
+        raise RuntimeError("RESEARCH_GUARD_SEARXNG_URL is not set")
+    url = f"{base_url}/search?q={quote_plus(query)}&format=json&categories=general"
+    req = Request(url, headers={"User-Agent": "Hermes Research Guard/0.6"})
+    with urlopen(req, timeout=_env_int("RESEARCH_GUARD_TIMEOUT", 8, 2, 20)) as resp:
+        data = json.loads(resp.read(500_000).decode("utf-8", "ignore"))
+    return _extract_web_results(data, limit)
+
+
+def _hermes_web_search(query: str, limit: int) -> list[dict[str, str]]:
+    from tools.web_tools import web_search_tool
+
+    raw = web_search_tool(query, limit=limit)
+    return _extract_web_results(raw, limit)
+
+
+def _web_search_plus(query: str, limit: int) -> list[dict[str, str]]:
+    try:
+        from tools.web_search_plus import web_search_plus
+        raw = web_search_plus(query, limit=limit)
+    except ImportError:
+        from tools.web_search_plus import search
+        raw = search(query, limit=limit)
+    return _extract_web_results(raw, limit)
+
+
+def _provider_order() -> list[str]:
+    provider = _env_choice("RESEARCH_GUARD_PROVIDER", "auto", {"auto", "web_search_plus", "brave", "hermes", "duckduckgo", "searxng"})
+    if provider == "auto":
+        order = ["web_search_plus"] if _web_search_plus_available() else []
+        if os.getenv("BRAVE_API_KEY") or os.getenv("RESEARCH_GUARD_BRAVE_API_KEY"):
+            order.append("brave")
+        order.append("hermes")
+        if os.getenv("RESEARCH_GUARD_SEARXNG_URL"):
+            order.append("searxng")
+        order.append("duckduckgo")
+        return order
+    return [provider]
+
+
+def _web_search_plus_available() -> bool:
+    try:
+        return importlib.util.find_spec("tools.web_search_plus") is not None
+    except Exception:
+        return False
+
+
+def _provider_slug(provider: str) -> str:
+    return {
+        "web_search_plus": "web-search-plus",
+        "brave": "brave",
+        "hermes": "hermes-web",
+        "duckduckgo": "duckduckgo-html",
+        "searxng": "searxng",
+    }.get(provider, provider)
+
+
+def _run_provider(provider: str, query: str, limit: int) -> list[dict[str, str]]:
+    if provider == "web_search_plus":
+        return _web_search_plus(query, limit)
+    if provider == "brave":
+        return _brave_search(query, limit)
+    if provider == "hermes":
+        return _hermes_web_search(query, limit)
+    if provider == "searxng":
+        return _searxng_search(query, limit)
+    if provider == "duckduckgo":
+        return _duckduckgo_search(query, limit)
+    raise RuntimeError(f"Unknown provider: {provider}")
+
+
 def _search(query: str, limit: int, deep_profile: str = "off") -> dict[str, Any]:
     cache_ttl = _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400)
     cache = _load_cache()
     now = time.time()
+    provider_order = _provider_order()
+    provider_slugs = [_provider_slug(provider) for provider in provider_order]
     def cache_key(provider: str) -> str:
         return f"provider={provider}:limit={limit}:deep={deep_profile}:query={query.strip().lower()}"
 
-    for provider in ("hermes-web", "duckduckgo-html"):
-        key = cache_key(provider)
+    for provider_slug in provider_slugs:
+        key = cache_key(provider_slug)
         if cache_ttl and key in cache and now - float(cache[key].get("ts", 0)) < cache_ttl:
             payload = dict(cache[key]["payload"])
             payload["cached"] = True
             payload["cache_key"] = key
+            payload["provider_chain"] = provider_slugs
             return payload
 
     errors: list[str] = []
-    try:
-        from tools.web_tools import web_search_tool
-        raw = web_search_tool(query, limit=limit)
-        data = json.loads(raw)
-        if data.get("success") and data.get("data", {}).get("web"):
-            results = []
-            for item in data["data"]["web"][:limit]:
-                results.append({
-                    "title": item.get("title") or item.get("name") or "Untitled",
-                    "url": item.get("url") or item.get("link") or "",
-                    "snippet": item.get("description") or item.get("snippet") or "",
-                })
-            key = cache_key("hermes-web")
-            payload = {"success": True, "provider": "hermes-web", "query": query, "results": results, "cached": False, "cache_key": key}
+    for provider in provider_order:
+        slug = _provider_slug(provider)
+        try:
+            results = _run_provider(provider, query, limit)
+            if not results:
+                errors.append(f"{slug}: no results")
+                continue
+            key = cache_key(slug)
+            payload = {
+                "success": True,
+                "provider": slug,
+                "provider_chain": provider_slugs,
+                "query": query,
+                "results": results,
+                "cached": False,
+                "cache_key": key,
+            }
+            if errors:
+                payload["fallback_errors"] = errors[-4:]
             cache[key] = {"ts": now, "payload": payload}
             _save_cache(cache)
             return payload
-        if isinstance(data, dict) and data.get("error"):
-            errors.append(str(data.get("error")))
-    except Exception as exc:
-        errors.append(f"hermes-web: {exc}")
+        except Exception as exc:
+            errors.append(f"{slug}: {exc}")
 
-    try:
-        results = _duckduckgo_search(query, limit)
-        key = cache_key("duckduckgo-html")
-        payload = {"success": bool(results), "provider": "duckduckgo-html", "query": query, "results": results, "cached": False, "cache_key": key}
-        if not results:
-            payload["error"] = "No search results parsed"
-        if errors:
-            payload["fallback_errors"] = errors[-2:]
-        cache[key] = {"ts": now, "payload": payload}
-        _save_cache(cache)
-        return payload
-    except Exception as exc:
-        return {"success": False, "provider": "none", "query": query, "results": [], "error": str(exc), "fallback_errors": errors[-2:]}
+    return {
+        "success": False,
+        "provider": "none",
+        "provider_chain": provider_slugs,
+        "query": query,
+        "results": [],
+        "error": "All configured search providers failed",
+        "fallback_errors": errors[-6:],
+    }
 
 
 def _format_context(
@@ -1414,6 +1602,8 @@ def _config_snapshot() -> dict[str, Any]:
         "enabled": _env_bool("RESEARCH_GUARD_ENABLED", True),
         "only_local": _env_bool("RESEARCH_GUARD_ONLY_LOCAL", True),
         "allow_cloud_research_triggers": _env_bool("RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS", False),
+        "provider": _env_choice("RESEARCH_GUARD_PROVIDER", "auto", {"auto", "web_search_plus", "brave", "hermes", "duckduckgo", "searxng"}),
+        "provider_chain": [_provider_slug(provider) for provider in _provider_order()],
         "max_results": _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10),
         "min_confidence": _parse_confidence(os.getenv("RESEARCH_GUARD_MIN_CONFIDENCE"), "low"),
         "require_multiple_sources": _env_bool("RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES", False),
@@ -1451,10 +1641,12 @@ def research_guard_search(args: dict, **kwargs) -> str:
         blocked_result_count=quality.get("blocked_result_count") if quality else None,
         evidence_diversity=quality.get("evidence_diversity") if quality else None,
         fetched_source_count=len(fetched_sources),
+        provider_chain=payload.get("provider_chain"),
         cache_key=payload.get("cache_key"),
         cached=payload.get("cached"),
         sources=_source_summaries(payload.get("results") or []),
         error=payload.get("error"),
+        fallback_errors=payload.get("fallback_errors"),
     )
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -1577,6 +1769,7 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             deep_fetch=deep_fetch,
             deep_fetch_reason=deep_fetch_reason,
             fetched_source_count=len(fetched_sources),
+            provider_chain=payload.get("provider_chain"),
             cache_key=payload.get("cache_key"),
             cached=payload.get("cached"),
         )
@@ -1597,9 +1790,11 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             deep_fetch=deep_fetch,
             deep_fetch_reason=deep_fetch_reason,
             fetched_source_count=len(fetched_sources),
+            provider_chain=payload.get("provider_chain"),
             cache_key=payload.get("cache_key"),
             cached=payload.get("cached"),
             error=payload.get("error"),
+            fallback_errors=payload.get("fallback_errors"),
         )
         logger.info("research-guard search skipped/failed: %s", payload.get("error"))
         return _no_research_response("search failed or returned no injectable context", current_prompt, model, provider)
@@ -1621,7 +1816,9 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
         deep_fetch=deep_fetch,
         deep_fetch_reason=deep_fetch_reason,
         fetched_source_count=len(fetched_sources),
+        provider_chain=payload.get("provider_chain"),
         sources=_source_summaries(quality.get("results") if quality else payload.get("results") or []),
+        fallback_errors=payload.get("fallback_errors"),
     )
     return {"context": context}
 
