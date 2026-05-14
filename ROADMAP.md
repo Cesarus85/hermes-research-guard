@@ -38,7 +38,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Provider fallback chain | `[x]` | v0.7.0 adds `RESEARCH_GUARD_PROVIDER` and auto order: optional `web_search_plus`, Brave, Hermes built-in web search, optional SearXNG, DuckDuckGo. |
 | Query cache with TTL | `[x]` | Present, file-backed. Needs provider-aware keys and cache cleanup. |
 | Provider-aware cache keys | `[x]` | v0.4.0 cache keys include provider, result count, reserved deep-fetch flag, and normalized query text. |
-| Trigger heuristics for factual/current questions | `[x]` | Present in simpler form. Port the expanded German/English rules. |
+| Trigger heuristics for factual/current questions | `[x]` | v0.7.1 adds `RESEARCH_GUARD_MODE` and broader German/English factual-risk triggers. |
 | Skip rules for code/files/terminal/memory/personal tasks | `[x]` | Present in simpler form. Port the expanded OpenClaw skip list. |
 | Local infrastructure skip rules | `[x]` | Skips IP, host, SSH, Tailscale, ping, local reachability, and service-status prompts. |
 | Speech wrapper cleanup | `[x]` | Strips `Audio:`, `Voice:`, `Transkript:`, `Sprachnachricht:` before classification and query building. |
@@ -83,9 +83,9 @@ Goal: reduce over-searching while making factual-risk prompts more reliable for 
 - [x] Port cloud provider patterns: `openai`, `anthropic`, `gemini`, `google`, `openrouter`, `perplexity`, `moonshot`, `kimi`, `minimax`, `synthetic`, `zai`.
 - [x] Treat explicit cloud markers such as Ollama `:cloud` as non-local.
 - [x] Add `RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS=true|false`.
-- [ ] PORT Add mode setting: `RESEARCH_GUARD_MODE=conservative|balanced|aggressive`.
-- [ ] PORT Expand factual/current trigger patterns for German and English prompts.
-- [ ] PORT Add explicit triggers for population, mayors, presidents, releases, prices, versions, changelogs, and comparisons.
+- [x] Add mode setting: `RESEARCH_GUARD_MODE=conservative|balanced|aggressive`.
+- [x] Expand factual/current trigger patterns for German and English prompts.
+- [x] Add explicit triggers for population, mayors, presidents, releases, prices, versions, changelogs, and comparisons.
 - [x] Make `/research` and `/no-research` behave the same as `#research` and `#no-research`.
 
 ## v0.4 - Skip Rules And Privacy Boundaries
@@ -113,8 +113,8 @@ Goal: turn conversational prompts into search-friendly queries without losing us
 - [x] Carry prior subject into follow-up queries when prompts use pronouns or demonstratives.
 - [x] Add subject extraction for identity, location, and named-entity questions.
 - [x] Use Hermes `conversation_history`, `messages`, or `history` for follow-up subject extraction.
-- [ ] PORT Add deterministic rewrite templates for latest/current/release/version/price prompts.
-- [ ] PORT Add official-source hints for docs, changelogs, pricing pages, government/statistics pages, and municipal facts.
+- [x] Add deterministic rewrite templates for latest/current/release/version/price prompts.
+- [x] Add official-source hints for docs, changelogs, pricing pages, government/statistics pages, and municipal facts.
 - [x] Expose original prompt, cleaned prompt, carried subject, and final query in debug/status output.
 
 ## v0.6 - Source Quality And Confidence

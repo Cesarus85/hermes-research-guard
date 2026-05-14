@@ -73,7 +73,10 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
     def test_speech_wrappers_are_removed_before_classification_and_query_building(self):
         prompt = 'Audio: "Wer ist Bürgermeister von Forchheim?"'
         self.assertEqual(guard._clean_message_for_research(prompt), "Wer ist Bürgermeister von Forchheim?")
-        self.assertEqual(guard._build_search_query(prompt), "Wer ist Bürgermeister von Forchheim?")
+        self.assertEqual(
+            guard._build_search_query(prompt),
+            "Forchheim Bürgermeister Oberbürgermeister Rathaus offizielle Stadt Verwaltung",
+        )
         self.assertTrue(guard._should_research(prompt)[0])
 
         transcript = "Transkript: Bürgermeister von Forchheim"
@@ -83,6 +86,21 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
     def test_current_factual_questions_still_trigger(self):
         self.assertTrue(guard._should_research("Wer ist aktuell Präsident von Frankreich?")[0])
         self.assertTrue(guard._should_research("Welche Version von Python ist aktuell?")[0])
+
+    def test_research_mode_controls_question_heuristics(self):
+        old = os.environ.get("RESEARCH_GUARD_MODE")
+        try:
+            os.environ["RESEARCH_GUARD_MODE"] = "conservative"
+            self.assertEqual(guard._should_research("Was ist ein Axolotl?"), (False, "conservative-no-trigger"))
+            self.assertTrue(guard._should_research("Wie viele Einwohner hat Forchheim?")[0])
+
+            os.environ["RESEARCH_GUARD_MODE"] = "aggressive"
+            self.assertEqual(guard._should_research("Kann man das grob einordnen?"), (True, "aggressive-question"))
+        finally:
+            if old is None:
+                os.environ.pop("RESEARCH_GUARD_MODE", None)
+            else:
+                os.environ["RESEARCH_GUARD_MODE"] = old
 
     def test_model_gate_recognizes_local_providers_and_cloud_markers(self):
         self.assertTrue(guard._is_local_or_small_model("qwen3:latest", "goliath"))
@@ -109,19 +127,19 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         ]
         self.assertEqual(
             guard._build_search_query("Was ist mit ihm danach passiert?", messages),
-            "Wal Timmy Was ist mit ihm danach passiert?",
+            "Wal Timmy Was ist mit ihm danach passiert",
         )
 
         location_messages = [{"role": "user", "content": "Wo liegt Forchheim?"}]
         self.assertEqual(
             guard._build_search_query("Wie viele Einwohner hat es?", location_messages),
-            "Forchheim Wie viele Einwohner hat es?",
+            "Forchheim Einwohner Einwohnerzahl Bevölkerung Statistik offizielle Stadt",
         )
 
         office_messages = [{"role": "user", "content": "Wer ist Bürgermeister von Forchheim?"}]
         self.assertEqual(
             guard._build_search_query("Wann wurde sie gewählt?", office_messages),
-            "Forchheim Wann wurde sie gewählt?",
+            "Forchheim Wann wurde sie gewählt",
         )
 
     def test_followup_subject_carryover_supports_content_parts(self):
@@ -130,7 +148,25 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         ]
         self.assertEqual(
             guard._build_search_query("Was ist über sie aktuell bekannt?", messages),
-            "Martina Hebendanz Was ist über sie aktuell bekannt?",
+            "Martina Hebendanz Was ist über sie aktuell bekannt official current",
+        )
+
+    def test_query_rewrite_templates_add_official_source_hints(self):
+        self.assertEqual(
+            guard._build_search_query("Welche Version von Python ist aktuell?"),
+            "Python official latest version release notes",
+        )
+        self.assertEqual(
+            guard._build_search_query("Was kostet ChatGPT Team?"),
+            "ChatGPT Team official pricing price",
+        )
+        self.assertEqual(
+            guard._build_search_query("Wer ist Bürgermeister von Forchheim?"),
+            "Forchheim Bürgermeister Oberbürgermeister Rathaus offizielle Stadt Verwaltung",
+        )
+        self.assertEqual(
+            guard._query_debug("Welche Version von Python ist aktuell?")["rewrite_strategy"],
+            "software-version",
         )
 
     def test_source_followups_do_not_trigger_a_fresh_web_search(self):
@@ -357,7 +393,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         debug = guard._query_debug("Was ist mit ihm danach passiert?", messages)
 
         self.assertEqual(debug["carried_subject"], "Wal Timmy")
-        self.assertEqual(debug["final_query"], "Wal Timmy Was ist mit ihm danach passiert?")
+        self.assertEqual(debug["final_query"], "Wal Timmy Was ist mit ihm danach passiert")
         self.assertTrue(debug["history_available"])
 
     def test_scores_preferred_and_official_sources_above_weak_aggregators(self):

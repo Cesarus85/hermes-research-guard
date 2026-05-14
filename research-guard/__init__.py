@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -117,7 +117,14 @@ QUESTION_RE = re.compile(
     r"\b(wer|was|wann|wo|warum|wie|welche|welcher|welches|wieviel|wie viel|"
     r"who|what|when|where|why|how|which|compare|vergleich|unterschied|"
     r"aktuell|current|latest|neueste|version|release|stimmt es|is it true|"
-    r"bürgermeister|oberbürgermeister|landrat|präsident|president|minister)\b",
+    r"bürgermeister|oberbürgermeister|landrat|präsident|president|minister|"
+    r"einwohner|einwohnerzahl|bevölkerung|population|preise|preis|pricing|changelog)\b",
+    re.IGNORECASE,
+)
+FACTUAL_RISK_RE = re.compile(
+    r"\b(bürgermeister|oberbürgermeister|landrat|präsident|president|ministerpräsident|"
+    r"mayor|president|prime minister|einwohner|einwohnerzahl|bevölkerung|population|"
+    r"release|version|changelog|release notes?|preis|preise|pricing|price|compare|vergleich|unterschied)\b",
     re.IGNORECASE,
 )
 LOCAL_OR_PRIVATE_RE = re.compile(
@@ -250,12 +257,104 @@ def _clean_message_for_research(message: str) -> str:
 
 
 def _build_search_query(message: str, messages: list[Any] | None = None) -> str:
+    return _query_plan(message, messages)["final_query"]
+
+
+def _query_plan(message: str, messages: list[Any] | None = None) -> dict[str, Any]:
     text = _clean_message_for_research(message)
+    manual_research = bool(RESEARCH_PREFIX_RE.match(text))
     text = RESEARCH_PREFIX_RE.sub("", text)
     text = NO_RESEARCH_PREFIX_RE.sub("", text)
     cleaned = re.sub(r"\s+", " ", text).strip()
     subject = _extract_prior_subject(messages, cleaned)
-    return f"{subject} {cleaned}".strip()[:240] if subject else cleaned[:240]
+    base_query = f"{subject} {cleaned}".strip()[:240] if subject else cleaned[:240]
+    if manual_research:
+        rewritten_query, strategy = base_query, "manual-exact"
+    else:
+        rewritten_query, strategy = _rewrite_search_query(base_query)
+    return {
+        "cleaned_prompt": cleaned,
+        "carried_subject": subject,
+        "base_query": base_query,
+        "final_query": rewritten_query[:240],
+        "rewrite_strategy": strategy,
+    }
+
+
+def _dedupe_query_terms(value: str) -> str:
+    words = []
+    seen = set()
+    for word in re.split(r"\s+", value.strip()):
+        key = word.lower().strip(".,;:!?()[]{}\"'")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        words.append(word)
+    return " ".join(words)
+
+
+def _extract_query_subject(query: str) -> str:
+    cleaned = re.sub(r"[?!.]+$", "", query or "").strip()
+    patterns = [
+        r"\b(?:von|in|for|of)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,4})",
+        r"\b(?:version|release|changelog|pricing|preise|preis|cost|kosten|kostet)\s+(?:von|for|of)?\s*([A-ZÄÖÜA-Za-z0-9][\wÄÖÜäöüß.'+-]*(?:\s+[A-ZÄÖÜA-Za-z0-9][\wÄÖÜäöüß.'+-]*){0,4})",
+        r"\b(?:was\s+kostet|what\s+does|how\s+much\s+is)\s+([A-ZÄÖÜA-Za-z0-9][\wÄÖÜäöüß.'+-]*(?:\s+[A-ZÄÖÜA-Za-z0-9][\wÄÖÜäöüß.'+-]*){0,5})",
+        r"^([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, cleaned, flags=re.IGNORECASE)
+        if match:
+            subject = _trim_subject(match.group(1))
+            if subject:
+                if subject.lower() in {"wer", "was", "wann", "wo", "wie", "welche", "welcher", "welches", "what", "who", "how"}:
+                    continue
+                return subject
+    return cleaned[:120]
+
+
+def _extract_local_fact_subject(query: str) -> str:
+    cleaned = re.sub(r"[?!.]+$", "", query or "").strip()
+    prefix = re.match(r"^(.+?)\s+(?:wie\s+viele|wieviele|wie\s+viel|einwohner|bevölkerung|population)\b", cleaned, flags=re.IGNORECASE)
+    if prefix:
+        subject = _trim_subject(prefix.group(1))
+        if subject:
+            return subject
+    patterns = [
+        r"^([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})\s+(?:wie|wieviel|wie viele|einwohner|bevölkerung|population)",
+        r"\b(?:hat|haben|in|von|for|of)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, cleaned, flags=re.IGNORECASE)
+        if match:
+            subject = _trim_subject(match.group(1))
+            if subject:
+                return subject
+    return _extract_query_subject(cleaned)
+
+
+def _rewrite_search_query(query: str) -> tuple[str, str]:
+    cleaned = re.sub(r"\s+", " ", query or "").strip()
+    cleaned = re.sub(r"[?？]+$", "", cleaned).strip()
+    lower = cleaned.lower()
+    if not cleaned:
+        return "", "empty"
+    subject = _extract_query_subject(cleaned)
+    if re.search(r"\b(bürgermeister|oberbürgermeister|mayor|landrat)\b", lower):
+        return _dedupe_query_terms(f"{subject} Bürgermeister Oberbürgermeister Rathaus offizielle Stadt Verwaltung"), "municipal-office"
+    if re.search(r"\b(einwohner|einwohnerzahl|bevölkerung|population|inhabitants|residents)\b", lower):
+        subject = _extract_local_fact_subject(cleaned)
+        return _dedupe_query_terms(f"{subject} Einwohner Einwohnerzahl Bevölkerung Statistik offizielle Stadt"), "municipal-population"
+    if re.search(r"\b(release notes?|changelog|änderungsprotokoll|aenderungsprotokoll)\b", lower):
+        return _dedupe_query_terms(f"{subject} official changelog release notes"), "software-changelog"
+    if re.search(r"\b(version|latest version|aktuelle version|neueste version|release)\b", lower):
+        return _dedupe_query_terms(f"{subject} official latest version release notes"), "software-version"
+    if re.search(r"\b(preis|preise|pricing|price|kosten|kostet|cost|subscription|abo)\b", lower):
+        return _dedupe_query_terms(f"{subject} official pricing price"), "pricing"
+    if re.search(r"\b(compare|vergleich|unterschied|difference|vs\b|versus)\b", lower):
+        return _dedupe_query_terms(f"{cleaned} official comparison documentation"), "comparison"
+    if re.search(r"\b(aktuell|aktuelle|current|latest|heute|derzeit)\b", lower):
+        return _dedupe_query_terms(f"{cleaned} official current"), "current-official"
+    return cleaned[:240], "none"
 
 
 def _is_subject_followup(message: str) -> bool:
@@ -341,17 +440,14 @@ def _extract_prior_subject(messages: list[Any] | None, prompt: str) -> str | Non
 
 
 def _query_debug(message: str, messages: list[Any] | None = None) -> dict[str, Any]:
-    cleaned = _clean_message_for_research(message)
-    stripped = RESEARCH_PREFIX_RE.sub("", cleaned)
-    stripped = NO_RESEARCH_PREFIX_RE.sub("", stripped)
-    stripped = re.sub(r"\s+", " ", stripped).strip()
-    carried_subject = _extract_prior_subject(messages, stripped)
-    final_query = f"{carried_subject} {stripped}".strip()[:240] if carried_subject else stripped[:240]
+    plan = _query_plan(message, messages)
     return {
         "original_preview": _redact_prompt_preview(message),
-        "cleaned_prompt": _redact_prompt_preview(stripped, 240),
-        "carried_subject": carried_subject,
-        "final_query": final_query,
+        "cleaned_prompt": _redact_prompt_preview(str(plan.get("cleaned_prompt") or ""), 240),
+        "carried_subject": plan.get("carried_subject"),
+        "base_query": _redact_prompt_preview(str(plan.get("base_query") or ""), 240),
+        "final_query": _redact_prompt_preview(str(plan.get("final_query") or ""), 240),
+        "rewrite_strategy": plan.get("rewrite_strategy"),
         "history_available": bool(messages),
     }
 
@@ -383,6 +479,7 @@ def _should_research(message: str) -> tuple[bool, str]:
     text = _clean_message_for_research(message)
     if not text:
         return False, "empty"
+    mode = _env_choice("RESEARCH_GUARD_MODE", "balanced", {"conservative", "balanced", "aggressive"})
     if NO_RESEARCH_PREFIX_RE.match(text):
         return False, "opt-out"
     if RESEARCH_PREFIX_RE.match(text):
@@ -405,10 +502,16 @@ def _should_research(message: str) -> tuple[bool, str]:
         return False, "looks-local-personal-writing-coding"
     if CURRENT_RE.search(text):
         return True, "current-facts"
+    if mode == "conservative":
+        if FACTUAL_RISK_RE.search(text) and (text.endswith(("?", "？")) or len(text) < 180):
+            return True, "factual-risk"
+        return False, "conservative-no-trigger"
     if QUESTION_RE.search(text) and text.endswith(("?", "？")):
         return True, "factual-question"
     if QUESTION_RE.search(text) and len(text) < 220:
         return True, "general-knowledge"
+    if mode == "aggressive" and text.endswith(("?", "？")) and len(text) > 20:
+        return True, "aggressive-question"
     return False, "no-trigger"
 
 
@@ -438,7 +541,7 @@ def _redact_prompt_preview(text: str, limit: int = 180) -> str:
 
 def _redact_query_debug(value: dict[str, Any]) -> dict[str, Any]:
     redacted = dict(value)
-    for key in ("original_preview", "cleaned_prompt", "final_query"):
+    for key in ("original_preview", "cleaned_prompt", "base_query", "final_query"):
         if redacted.get(key) is not None:
             redacted[key] = _redact_prompt_preview(str(redacted[key]), 240)
     return redacted
@@ -1604,6 +1707,7 @@ def _config_snapshot() -> dict[str, Any]:
         "allow_cloud_research_triggers": _env_bool("RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS", False),
         "provider": _env_choice("RESEARCH_GUARD_PROVIDER", "auto", {"auto", "web_search_plus", "brave", "hermes", "duckduckgo", "searxng"}),
         "provider_chain": [_provider_slug(provider) for provider in _provider_order()],
+        "mode": _env_choice("RESEARCH_GUARD_MODE", "balanced", {"conservative", "balanced", "aggressive"}),
         "max_results": _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10),
         "min_confidence": _parse_confidence(os.getenv("RESEARCH_GUARD_MIN_CONFIDENCE"), "low"),
         "require_multiple_sources": _env_bool("RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES", False),
@@ -1694,7 +1798,7 @@ def research_guard_status(args: dict, **kwargs) -> str:
                 "decision_fields": [
                     "diagnostic", "category", "visible_effect", "evidence", "query_debug",
                     "confidence", "score", "usable_result_count", "blocked_result_count",
-                    "evidence_diversity", "warnings",
+                    "evidence_diversity", "warnings", "rewrite_strategy",
                 ],
                 "prompt_preview_redaction": "emails, phone-like values, and long token-like strings are redacted",
             },

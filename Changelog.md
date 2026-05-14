@@ -1,3 +1,13 @@
+## 2026-05-14 - Query-Rewrites und Modus-Schalter ergänzt
+- **Typ:** feature
+- **Auslöser:** Angleichung an OpenClaw Query-Quality-Block nach Provider-Parität.
+- **Änderung:** `RESEARCH_GUARD_MODE=conservative|balanced|aggressive` ergänzt. Standard bleibt `balanced`, `conservative` reduziert allgemeine Fakten-Suchen, `aggressive` recherchiert längere Fragezeichen-Prompts eher.
+- **Query-Rewrites:** Deterministische Templates für Bürgermeister/Landrat, Einwohner/Bevölkerung, aktuelle Versionen/Releases, Changelogs/Release Notes, Preise/Pricing, Vergleiche und aktuelle Fakten ergänzt.
+- **Official Hints:** Rewrites fügen offizielle Suchhinweise wie `official`, `release notes`, `pricing`, `Rathaus`, `offizielle Stadt`, `Statistik` oder `Verwaltung` hinzu.
+- **Diagnostik:** `query_debug` enthält jetzt `base_query` und `rewrite_strategy`, damit im Status sichtbar ist, was aus der Nutzerfrage gesucht wurde.
+- **Version:** Plugin-Version auf `0.7.1` erhöht.
+- **Tests:** Coverage für Modus-Schalter, Rewrite-Templates und Query-Debug ergänzt.
+
 ## 2026-05-13 - Provider-Kette und Brave/SearXNG ergänzt
 - **Typ:** feature
 - **Auslöser:** Angleichung an OpenClaw Provider-/Suchbackend-Parität.

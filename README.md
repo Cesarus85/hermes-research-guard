@@ -56,7 +56,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.7.0
+version: 0.7.1
 ```
 
 Enable it:
@@ -84,6 +84,7 @@ Optional environment variables:
 | `RESEARCH_GUARD_ONLY_LOCAL` | `true` | Only trigger for local/small model names |
 | `RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS` | `false` | Allow automatic research for cloud models when a prompt would otherwise trigger research |
 | `RESEARCH_GUARD_LOCAL_PATTERNS` | built-in list | Comma-separated model-name patterns |
+| `RESEARCH_GUARD_MODE` | `balanced` | Trigger sensitivity: `conservative`, `balanced`, or `aggressive` |
 | `RESEARCH_GUARD_PROVIDER` | `auto` | Search provider: `auto`, `web_search_plus`, `brave`, `hermes`, `duckduckgo`, or `searxng` |
 | `BRAVE_API_KEY` / `RESEARCH_GUARD_BRAVE_API_KEY` | empty | Brave Search API key for the `brave` provider or `auto` chain |
 | `RESEARCH_GUARD_SEARXNG_URL` | empty | Base URL for a SearXNG instance, used by the `searxng` provider or optional `auto` fallback |
@@ -199,6 +200,23 @@ usable_result_count, blocked_result_count, evidence_diversity, warnings
 Categories include `researched_and_injected`, `manual_research`, `researched_but_not_injected`, `checked_and_skipped`, and `failed`. The `query_debug` object shows the redacted original prompt preview, cleaned prompt, carried subject, final query, and whether Hermes history was available. Prompt previews redact emails, phone-like values, and long token-like strings.
 
 The status payload also includes cache statistics and a compact configuration snapshot so you can verify model-gate, confidence, preferred-domain, and blocked-domain behavior during real Hermes runs.
+
+## Query quality
+
+Research Guard rewrites common factual prompts into search-friendly queries before calling the provider chain. Examples:
+
+```text
+Welche Version von Python ist aktuell?
+-> Python official latest version release notes
+
+Wer ist Bürgermeister von Forchheim?
+-> Forchheim Bürgermeister Oberbürgermeister Rathaus offizielle Stadt Verwaltung
+
+Wie viele Einwohner hat Forchheim?
+-> Forchheim Einwohner Einwohnerzahl Bevölkerung Statistik offizielle Stadt
+```
+
+The original prompt, carried subject, base query, final query, and rewrite strategy are visible in `research_guard_status` under `query_debug`.
 
 ## Context and opinion follow-ups
 
