@@ -56,7 +56,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.7.1
+version: 0.7.2
 ```
 
 Enable it:
@@ -125,7 +125,9 @@ Boosted signals include:
 
 ```text
 preferred-domain, government-source, municipal-source, documentation-source,
-primary-project-source, vendor-source, reference-source, official-context
+primary-project-source, package-registry-source, vendor-source,
+release-notes-source, pricing-source, standards-source, reference-source,
+official-context
 ```
 
 Warnings include:
@@ -136,7 +138,9 @@ Possible paywall or snippet-only source, Commercial or listicle-style source,
 Undated source for current-information query, Possibly stale source
 ```
 
-The injected context includes a `Quellenbewertung:` line with confidence, score, usable-source count, evidence diversity, unique domains, and duplicate hints. For local/municipal questions such as mayors or population, city/municipal pages are preferred when their title or snippet indicates an official administration source.
+The injected context includes a `Quellenbewertung:` line with confidence, score, usable-source count, evidence diversity, unique domains, and duplicate hints. It also includes a `Quellenprofile:` line so Hermes can see which query profile was active: `municipal-local`, `tech-software`, `price-product`, or `news-current`.
+
+For local/municipal questions such as mayors, population, and city/location facts, city/municipal pages are preferred when their title or snippet indicates an official administration source. For software, version, release, API, package, or pricing prompts, official docs, project pages, package registries, release notes, vendor pages, standards pages, and pricing pages are ranked ahead of weak aggregators.
 
 For location questions such as `Wo liegt Forchheim?`, the context now explicitly tells the model to answer only the location/administrative classification and avoid extra rivers, traffic routes, population numbers, distances, or unrelated details unless the user asked and the sources support them.
 

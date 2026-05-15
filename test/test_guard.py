@@ -479,6 +479,64 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("forchheim.de", quality["results"][0]["url"])
         self.assertIn("municipal-source", quality["results"][0]["quality"]["signals"])
         self.assertIn("fresh-source", quality["results"][0]["quality"]["signals"])
+        self.assertIn("municipal-local", quality["query_profiles"])
+        self.assertIn("municipal", quality["source_profiles"])
+
+    def test_domain_profiles_prefer_package_and_release_sources_for_software(self):
+        quality = guard._score_research_results(
+            [
+                {
+                    "title": "Example package",
+                    "url": "https://pypi.org/project/example/",
+                    "snippet": "Official package release history and latest version.",
+                    "age": "2026-05-12",
+                },
+                {
+                    "title": "Example release notes",
+                    "url": "https://github.com/example/example/releases",
+                    "snippet": "Official changelog and release notes for Example.",
+                    "age": "2026-05-12",
+                },
+                {
+                    "title": "Top Example downloads",
+                    "url": "https://softonic.com/example",
+                    "snippet": "Download free Example alternatives.",
+                    "age": "2026-05-12",
+                },
+            ],
+            "Example latest version release notes",
+        )
+
+        self.assertIn("tech-software", quality["query_profiles"])
+        self.assertEqual(quality["results"][0]["url"], "https://pypi.org/project/example/")
+        self.assertIn("package-registry", quality["results"][0]["quality"]["profiles"])
+        self.assertIn("package-registry-source", quality["results"][0]["quality"]["signals"])
+        self.assertIn("release-notes", quality["source_profiles"])
+        self.assertIn("weak-aggregator", quality["source_profiles"])
+
+    def test_domain_profiles_prefer_official_pricing_sources(self):
+        quality = guard._score_research_results(
+            [
+                {
+                    "title": "ChatGPT Team pricing",
+                    "url": "https://openai.com/chatgpt/pricing/",
+                    "snippet": "Official pricing plans and subscription details.",
+                    "age": "2026-05-10",
+                },
+                {
+                    "title": "Best ChatGPT coupons",
+                    "url": "https://coupon.example/chatgpt",
+                    "snippet": "Best deals and coupons for subscriptions.",
+                    "age": "2026-05-10",
+                },
+            ],
+            "ChatGPT Team official pricing price",
+        )
+
+        self.assertIn("price-product", quality["query_profiles"])
+        self.assertEqual(quality["results"][0]["url"], "https://openai.com/chatgpt/pricing/")
+        self.assertIn("pricing", quality["results"][0]["quality"]["profiles"])
+        self.assertIn("pricing-source", quality["results"][0]["quality"]["signals"])
 
     def test_dampens_repeated_sources_from_same_domain(self):
         quality = guard._score_research_results(
@@ -678,6 +736,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         )
 
         self.assertIn("Quellenbewertung:", context)
+        self.assertIn("Quellenprofile:", context)
         self.assertIn("Qualität:", context)
         self.assertIn("Bei Ortsfragen", context)
         self.assertIn("Aktuelle Nutzerfrage: Wo liegt Forchheim?", context)

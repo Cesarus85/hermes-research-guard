@@ -1,3 +1,12 @@
+## 2026-05-15 - Domain-spezifische Quellenprofile ergänzt
+- **Typ:** feature
+- **Auslöser:** Angleichung an OpenClaw Source-Ranking für Software, kommunale Fakten, Preise/Produkte und aktuelle Themen.
+- **Änderung:** Query-Profile `municipal-local`, `tech-software`, `price-product` und `news-current` ergänzt. Quellen erhalten zusätzlich explizite Profile wie `municipal`, `documentation`, `project`, `package-registry`, `release-notes`, `pricing`, `standards`, `reference` und schwache Profile wie `weak-aggregator`.
+- **Scoring:** Paketregistries, Release Notes, offizielle Pricing-Seiten und Standards-Domains werden nun stärker bevorzugt; schwache Aggregator-/Commercial-Profile bleiben sichtbar und werden abgewertet.
+- **Diagnostik:** `quality`, Statusentscheidungen und injizierter Kontext enthalten jetzt `query_profiles`, `source_profiles`, `profile_coverage` bzw. eine `Quellenprofile:`-Zeile.
+- **Version:** Plugin-Version auf `0.7.2` erhöht.
+- **Tests:** Coverage für Software-/Package-/Release-Profile, Pricing-Profile und Profilanzeige im Kontext ergänzt.
+
 ## 2026-05-14 - Query-Rewrites und Modus-Schalter ergänzt
 - **Typ:** feature
 - **Auslöser:** Angleichung an OpenClaw Query-Quality-Block nach Provider-Parität.

@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.7.1"
+__version__ = "0.7.2"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -46,6 +46,15 @@ STATUS_RESPONSE_POLICY = {
     ],
 }
 CONFIDENCE_RANK = {"low": 1, "medium": 2, "high": 3}
+PACKAGE_REGISTRY_DOMAINS = [
+    "npmjs.com", "pypi.org", "crates.io", "rubygems.org", "packagist.org",
+    "nuget.org", "central.sonatype.com", "repo.maven.apache.org",
+    "plugins.gradle.org", "pub.dev",
+]
+STANDARDS_DOMAINS = [
+    "w3.org", "whatwg.org", "ietf.org", "rfc-editor.org", "iso.org",
+    "ecma-international.org", "khronos.org", "unicode.org", "owasp.org",
+]
 DEFAULT_LOCAL_MODEL_PATTERNS = (
     "qwen", "ollama", "llama", "mistral", "gemma", "phi", "deepseek",
     "yi-", "codellama", "local", "lmstudio", "mlx", "gguf", "vllm", "tgi",
@@ -644,6 +653,8 @@ def _diagnose_decision(decision: dict[str, Any]) -> dict[str, Any]:
         ("usable_result_count", "usable"),
         ("blocked_result_count", "blocked"),
         ("evidence_diversity", "diversity"),
+        ("query_profiles", "queryProfiles"),
+        ("source_profiles", "sourceProfiles"),
         ("cached", "cache"),
         ("cache_key", "cacheKey"),
         ("model", "model"),
@@ -713,6 +724,7 @@ def _source_summaries(results: list[dict[str, Any]], limit: int = 5) -> list[dic
                 "score": quality.get("score"),
                 "confidence": quality.get("confidence"),
                 "domain": quality.get("domain"),
+                "profiles": quality.get("profiles") or [],
                 "signals": quality.get("signals") or [],
                 "warnings": quality.get("warnings") or [],
             }
@@ -733,6 +745,35 @@ def _normalize_hostname(value: str) -> str:
 
 def _domain_matches_any(domain: str, candidates: list[str]) -> bool:
     return any(domain == candidate or domain.endswith(f".{candidate}") for candidate in candidates)
+
+
+def _query_source_profiles(query: str) -> list[str]:
+    lower = (query or "").lower()
+    profiles: list[str] = []
+    if re.search(
+        r"\b(bürgermeister|oberbürgermeister|landrat|einwohner|einwohnerzahl|bevölkerung|"
+        r"rathaus|gemeinde|stadt|landkreis|wo\s+liegt|where\s+is|located|mayor|population)\b",
+        lower,
+        flags=re.IGNORECASE,
+    ):
+        profiles.append("municipal-local")
+    if re.search(
+        r"\b(release notes?|changelog|version(?:en)?|docs?|documentation|api|sdk|software|"
+        r"package|npm|pypi|github|gitlab|crate|rubygem|maven|nuget)\b",
+        lower,
+        flags=re.IGNORECASE,
+    ):
+        profiles.append("tech-software")
+    if re.search(
+        r"\b(preis|preise|pricing|price|cost|kosten|kostet|tarif|tarife|plan|plans|"
+        r"subscription|abo|store|shop|buy)\b",
+        lower,
+        flags=re.IGNORECASE,
+    ):
+        profiles.append("price-product")
+    if _is_freshness_sensitive_query(query):
+        profiles.append("news-current")
+    return sorted(set(profiles))
 
 
 def _confidence_from_score(score: int) -> str:
@@ -821,9 +862,26 @@ def _is_primary_project_source(domain: str, text: str) -> bool:
     )
 
 
+def _is_package_registry_source(domain: str) -> bool:
+    return _domain_matches_any(domain, PACKAGE_REGISTRY_DOMAINS)
+
+
+def _is_standards_source(domain: str, text: str) -> bool:
+    return _domain_matches_any(domain, STANDARDS_DOMAINS) or bool(
+        re.search(r"\b(rfc\s*\d+|specification|spezifikation|norm|working draft|recommendation)\b", text, flags=re.IGNORECASE)
+    )
+
+
+def _is_release_notes_source(domain: str, text: str, query: str) -> bool:
+    release_query = re.search(r"\b(release notes?|changelog|version(?:en)?|latest version|neueste version|aktuelle version)\b", query, flags=re.IGNORECASE)
+    if not release_query or _is_weak_aggregator_domain(domain, text) or _is_forum_or_social_domain(domain):
+        return False
+    return bool(re.search(r"\b(release notes?|changelog|releases?|version history|änderungsprotokoll|aenderungsprotokoll)\b", text, flags=re.IGNORECASE))
+
+
 def _is_municipal_source(domain: str, text: str, query: str) -> bool:
     local_fact_query = re.search(
-        r"\b(bürgermeister|oberbürgermeister|landrat|einwohner|einwohnerzahl|bevölkerung|rathaus|gemeinde|stadt|landkreis|mayor|population)\b",
+        r"\b(bürgermeister|oberbürgermeister|landrat|einwohner|einwohnerzahl|bevölkerung|rathaus|gemeinde|stadt|landkreis|wo\s+liegt|where\s+is|located|mayor|population)\b",
         query,
         flags=re.IGNORECASE,
     )
@@ -839,6 +897,46 @@ def _is_vendor_or_project_source(domain: str, text: str, query: str) -> bool:
     return _is_documentation_source(domain, text) or _is_primary_project_source(domain, text) or bool(
         re.search(r"\b(official|offiziell|vendor|pricing|release notes?|changelog|documentation|download)\b", text, flags=re.IGNORECASE)
     )
+
+
+def _is_pricing_source(domain: str, text: str, query: str) -> bool:
+    price_query = re.search(r"\b(preis|preise|pricing|price|cost|kosten|kostet|tarif|tarife|plans?|subscription|abo)\b", query, flags=re.IGNORECASE)
+    if not price_query or _is_weak_aggregator_domain(domain, text) or _is_forum_or_social_domain(domain):
+        return False
+    return bool(re.search(r"\b(pricing|prices?|preise|tarife?|plans?|subscription|abo|store|shop|official|offiziell|vendor)\b", text, flags=re.IGNORECASE))
+
+
+def _source_profiles_for_result(domain: str, text: str, query: str) -> list[str]:
+    profiles = []
+    if _is_government_domain(domain):
+        profiles.append("government")
+    if _is_municipal_source(domain, text, query):
+        profiles.append("municipal")
+    if _is_documentation_source(domain, text):
+        profiles.append("documentation")
+    if _is_primary_project_source(domain, text):
+        profiles.append("project")
+    if _is_package_registry_source(domain):
+        profiles.append("package-registry")
+    if _is_vendor_or_project_source(domain, text, query):
+        profiles.append("vendor")
+    if _is_release_notes_source(domain, text, query):
+        profiles.append("release-notes")
+    if _is_pricing_source(domain, text, query):
+        profiles.append("pricing")
+    if _is_standards_source(domain, text):
+        profiles.append("standards")
+    if domain.endswith("wikipedia.org") or domain.endswith("wikidata.org"):
+        profiles.append("reference")
+    if _is_forum_or_social_domain(domain):
+        profiles.append("weak-forum-social")
+    if _is_weak_aggregator_domain(domain, text):
+        profiles.append("weak-aggregator")
+    if re.search(r"\b(subscribe|subscription|paywall|sign in to continue|members only|premium)\b", text, flags=re.IGNORECASE):
+        profiles.append("weak-paywall")
+    if re.search(r"\b(top\s+\d+|best\b|coupon|deals?|buy now|vergleich der besten|testsieger)\b", text, flags=re.IGNORECASE):
+        profiles.append("weak-commercial")
+    return sorted(set(profiles))
 
 
 def _is_freshness_sensitive_query(query: str) -> bool:
@@ -885,6 +983,7 @@ def _score_research_result(item: dict[str, Any], query: str, preferred_domains: 
         return {"score": 0, "confidence": "low", "domain": domain, "signals": ["blocked-domain"], "warnings": [f"Blocked domain: {domain}."]}
 
     text = f"{item.get('title') or ''} {item.get('snippet') or ''}".lower()
+    profiles = _source_profiles_for_result(domain, text, query)
     score = 50
     if _domain_matches_any(domain, preferred_domains):
         score += 35
@@ -901,9 +1000,21 @@ def _score_research_result(item: dict[str, Any], query: str, preferred_domains: 
     if _is_primary_project_source(domain, text):
         score += 15
         signals.append("primary-project-source")
+    if "package-registry" in profiles:
+        score += 18
+        signals.append("package-registry-source")
     if _is_vendor_or_project_source(domain, text, query):
         score += 14
         signals.append("vendor-source")
+    if "release-notes" in profiles:
+        score += 14
+        signals.append("release-notes-source")
+    if "pricing" in profiles:
+        score += 14
+        signals.append("pricing-source")
+    if "standards" in profiles:
+        score += 18
+        signals.append("standards-source")
     if domain.endswith("wikipedia.org") or domain.endswith("wikidata.org"):
         score += 15 if domain.endswith("wikidata.org") else 10
         signals.append("reference-source")
@@ -937,6 +1048,7 @@ def _score_research_result(item: dict[str, Any], query: str, preferred_domains: 
         "score": score,
         "confidence": _confidence_from_score(score),
         "domain": domain,
+        "profiles": profiles,
         "signals": sorted(set(signals)),
         "warnings": sorted(set(warnings)),
     }
@@ -945,6 +1057,7 @@ def _score_research_result(item: dict[str, Any], query: str, preferred_domains: 
 def _score_research_results(results: list[dict[str, Any]], query: str) -> dict[str, Any]:
     preferred_domains = _env_list("RESEARCH_GUARD_PREFERRED_DOMAINS")
     blocked_domains = _env_list("RESEARCH_GUARD_BLOCKED_DOMAINS")
+    query_profiles = _query_source_profiles(query)
     scored = []
     blocked = []
     for item in results:
@@ -993,6 +1106,11 @@ def _score_research_results(results: list[dict[str, Any]], query: str) -> dict[s
         result["quality"] = quality
 
     usable = sorted(scored, key=lambda item: item["quality"]["score"], reverse=True)
+    profile_coverage: dict[str, int] = {}
+    for item in usable:
+        for profile in item.get("quality", {}).get("profiles") or []:
+            profile_coverage[profile] = profile_coverage.get(profile, 0) + 1
+    source_profiles = sorted(profile_coverage)
     top_scores = [item["quality"]["score"] for item in usable[:3]]
     score = round(sum(top_scores) / len(top_scores)) if top_scores else 0
     unique_domain_count = len(site_counts)
@@ -1032,6 +1150,9 @@ def _score_research_results(results: list[dict[str, Any]], query: str) -> dict[s
         "unique_domain_count": unique_domain_count,
         "duplicate_cluster_count": duplicate_count,
         "evidence_diversity": evidence_diversity,
+        "query_profiles": query_profiles,
+        "source_profiles": source_profiles,
+        "profile_coverage": profile_coverage,
         "results": usable,
     }
 
@@ -1588,6 +1709,10 @@ def _format_context(
             f"{quality.get('unique_domain_count')} Domain(s), "
             f"{quality.get('duplicate_cluster_count')} Duplicate-Hinweis(e))."
         )
+        if quality.get("query_profiles") or quality.get("source_profiles"):
+            query_profiles = ", ".join(quality.get("query_profiles") or ["none"])
+            source_profiles = ", ".join(quality.get("source_profiles") or ["none"])
+            lines.append(f"Quellenprofile: Anfrage={query_profiles}; Treffer={source_profiles}.")
         if quality.get("warnings"):
             lines.append(f"Bewertungshinweise: {' '.join(quality.get('warnings') or [])}")
     if current_prompt:
@@ -1601,14 +1726,16 @@ def _format_context(
         lines.append(f"{idx}. {title}\n   URL: {url}\n   Auszug: {snippet}")
         item_quality = item.get("quality") or {}
         if item_quality:
+            profiles = ", ".join(item_quality.get("profiles") or [])
             signals = ", ".join(item_quality.get("signals") or [])
             warnings = " ".join(item_quality.get("warnings") or [])
+            profile_text = f"; Profile: {profiles}" if profiles else ""
             signal_text = f"; {signals}" if signals else ""
             warning_text = f"; Warnung: {warnings}" if warnings else ""
             lines.append(
                 "   Qualität: "
                 f"{item_quality.get('confidence')} ({item_quality.get('score')}/100; "
-                f"{item_quality.get('domain')}{signal_text}{warning_text})"
+                f"{item_quality.get('domain')}{profile_text}{signal_text}{warning_text})"
             )
     if fetched_sources:
         lines.extend(["", "[Research Guard: Vertiefte Quellen-Auszüge]"])
@@ -1744,6 +1871,9 @@ def research_guard_search(args: dict, **kwargs) -> str:
         usable_result_count=quality.get("usable_result_count") if quality else None,
         blocked_result_count=quality.get("blocked_result_count") if quality else None,
         evidence_diversity=quality.get("evidence_diversity") if quality else None,
+        query_profiles=quality.get("query_profiles") if quality else None,
+        source_profiles=quality.get("source_profiles") if quality else None,
+        profile_coverage=quality.get("profile_coverage") if quality else None,
         fetched_source_count=len(fetched_sources),
         provider_chain=payload.get("provider_chain"),
         cache_key=payload.get("cache_key"),
@@ -1798,7 +1928,8 @@ def research_guard_status(args: dict, **kwargs) -> str:
                 "decision_fields": [
                     "diagnostic", "category", "visible_effect", "evidence", "query_debug",
                     "confidence", "score", "usable_result_count", "blocked_result_count",
-                    "evidence_diversity", "warnings", "rewrite_strategy",
+                    "evidence_diversity", "query_profiles", "source_profiles", "profile_coverage",
+                    "warnings", "rewrite_strategy",
                 ],
                 "prompt_preview_redaction": "emails, phone-like values, and long token-like strings are redacted",
             },
@@ -1869,6 +2000,9 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             usable_result_count=quality.get("usable_result_count"),
             blocked_result_count=quality.get("blocked_result_count"),
             evidence_diversity=quality.get("evidence_diversity"),
+            query_profiles=quality.get("query_profiles"),
+            source_profiles=quality.get("source_profiles"),
+            profile_coverage=quality.get("profile_coverage"),
             warnings=quality.get("warnings"),
             deep_fetch=deep_fetch,
             deep_fetch_reason=deep_fetch_reason,
@@ -1891,6 +2025,10 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             score=quality.get("score") if quality else None,
             usable_result_count=quality.get("usable_result_count") if quality else None,
             blocked_result_count=quality.get("blocked_result_count") if quality else None,
+            evidence_diversity=quality.get("evidence_diversity") if quality else None,
+            query_profiles=quality.get("query_profiles") if quality else None,
+            source_profiles=quality.get("source_profiles") if quality else None,
+            profile_coverage=quality.get("profile_coverage") if quality else None,
             deep_fetch=deep_fetch,
             deep_fetch_reason=deep_fetch_reason,
             fetched_source_count=len(fetched_sources),
@@ -1916,6 +2054,9 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
         usable_result_count=quality.get("usable_result_count") if quality else None,
         blocked_result_count=quality.get("blocked_result_count") if quality else None,
         evidence_diversity=quality.get("evidence_diversity") if quality else None,
+        query_profiles=quality.get("query_profiles") if quality else None,
+        source_profiles=quality.get("source_profiles") if quality else None,
+        profile_coverage=quality.get("profile_coverage") if quality else None,
         warnings=quality.get("warnings") if quality else None,
         deep_fetch=deep_fetch,
         deep_fetch_reason=deep_fetch_reason,

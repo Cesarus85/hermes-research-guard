@@ -47,7 +47,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Context/opinion follow-up guard | `[x]` | Short prompts such as "Was hältst du davon?" and impression prompts such as "Wie ist dein Eindruck von meiner Heimatstadt?" reuse the last Research Guard topic instead of searching the literal phrase. |
 | Follow-up subject carryover | `[x]` | v0.4.0 carries prior subjects from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative search queries. |
 | Structured deep fetch | `[x]` | v0.6.1 fetches readable top-source excerpts in parallel and extracts simple structured tracklist candidates. |
-| Source quality scoring | `[x]` | v0.3.0 ports official/docs/government/municipal/vendor/project/reference scoring. |
+| Source quality scoring | `[x]` | v0.7.2 includes explicit query/source profiles for official docs, government/municipal pages, vendor/project pages, package registries, release notes, pricing, standards, reference pages, and weak-source demotion. |
 | Confidence gating | `[x]` | v0.3.0 adds `RESEARCH_GUARD_MIN_CONFIDENCE`, usable counts, and multiple-source downgrade support. |
 | Preferred domains | `[x]` | `RESEARCH_GUARD_PREFERRED_DOMAINS` boosts trusted domains. |
 | Blocked domains | `[x]` | `RESEARCH_GUARD_BLOCKED_DOMAINS` excludes configured domains from injected sources. |
@@ -197,10 +197,10 @@ Goal: keep the hook fast and predictable.
 
 Goal: make source ranking sensitive to topic risk.
 
-- [ ] PORT Tech/software mode: prefer official docs, GitHub/GitLab, package registries, changelogs, release notes.
-- [ ] PORT Municipal/local-facts mode: prefer city, municipality, county, government, and official administration pages.
-- [ ] PORT Price/product mode: prefer official pricing, vendor pages, stores, and recent pages.
-- [ ] PORT News/current mode: prefer fresh and dated sources.
+- [x] Tech/software mode: prefer official docs, GitHub/GitLab, package registries, changelogs, release notes.
+- [x] Municipal/local-facts mode: prefer city, municipality, county, government, and official administration pages.
+- [x] Price/product mode: prefer official pricing, vendor pages, stores, and recent pages.
+- [x] News/current mode: prefer fresh and dated sources.
 - [ ] PORT Medical/legal/financial mode: require stronger confidence and explicit uncertainty.
 - [ ] PORT Add high-stakes warning when sources are weak or insufficient.
 - [ ] PORT Document that Research Guard improves grounding but cannot guarantee truth.
