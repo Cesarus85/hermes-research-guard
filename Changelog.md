@@ -1,3 +1,11 @@
+## 2026-05-16 - Verlaufsketten-Label strikt festgelegt
+- **Typ:** fix
+- **Problem:** Hermes konnte die geprüfte kompakte Route weiterhin als freie `Verlauf:`-Zeile ausgeben, obwohl sie aus Research Guard stammen und nicht wie Modellwissen wirken soll.
+- **Änderung:** Die kompakte Kette darf in Antworten nur noch mit dem Label `Geprüfte Verlaufskette:` erscheinen.
+- **Guardrail:** `Verlauf:` und `Streckenverlauf:` sind für die kompakte Kette ausdrücklich verboten; nummerierte Google-Routes-Schritte bleiben nur bei expliziter Streckenverlaufsfrage erlaubt.
+- **Version:** Plugin version raised to `0.8.0-beta.21`.
+- **Tests:** Context tests assert the strict output label for normal route prompts and route follow-ups.
+
 ## 2026-05-16 - Strategie- und Maut-Hintertüren blockiert
 - **Typ:** fix
 - **Problem:** Hermes konnte weiterhin aus Kandidaten eine Reihenfolge oder Strategie formulieren (`erster Ladestopp`, `zweiter Stopp`, `Zwei-Stopp-Strategie`) und Maut/Vignette durch Hinweise wie `wahrscheinlich relevant` oder `vergiss die Vignette nicht` einschleusen.

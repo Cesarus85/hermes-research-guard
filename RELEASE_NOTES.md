@@ -1,5 +1,35 @@
 # Release Notes
 
+## v0.8.0-beta.21
+
+This beta tightens the final route-corridor presentation rule.
+
+### Fixed
+
+- Compact route chains derived by Research Guard must now be shown as `Geprüfte Verlaufskette: ...`.
+- The model is explicitly told not to label that compact chain as `Verlauf:` or `Streckenverlauf:`, because those labels make the chain look like free model knowledge.
+- Route follow-ups receive the same label rule.
+- Numbered Google Routes steps remain available only when the user explicitly asks for the route course/highways/roads.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.21
+```
+
+Expected tests:
+
+```text
+Ran 73 tests
+```
+
 ## v0.8.0-beta.20
 
 This beta closes the remaining route-planning wording gaps around candidate lists.

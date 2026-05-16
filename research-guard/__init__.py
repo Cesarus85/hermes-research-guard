@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.20"
+__version__ = "0.8.0-beta.21"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1759,6 +1759,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Konflikt-Regel: Wenn nur ein Kandidat mit bestätigten Connector-/Leistungsdaten im relevanten unterwegs-Bereich vorhanden ist, sage das klar, statt einen zweiten Ladepunkt als gleichwertigen Stop zu behandeln.",
         "Antwortvorlage-Pflicht: Nutze für normale Routen-/Ladeplanungsantworten nur diese Rubriken: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`.",
         "Route-Rubrik-Regel: In der Rubrik `Route` sind nur Start, Ziel, Gesamtdistanz, Gesamtfahrzeit und die unten angegebene `Geprüfte Verlaufskette` erlaubt. Keine selbst gebaute Zeile `Verlauf:`, keine manuell ergänzten Autobahnen/Straßen, keine Pässe, keine Maut.",
+        "Verlaufsketten-Ausgabe-Regel: Wenn du die geprüfte Kette in der Antwort nennst, muss die Zeile exakt mit `Geprüfte Verlaufskette:` beginnen. Schreibe niemals `Verlauf:` oder `Streckenverlauf:` für diese kompakte Kette.",
         "Vorlagen-Regel: Eine `Streckenverlauf`-Rubrik darf nur erscheinen, wenn der Nutzer ausdrücklich nach Verlauf/Autobahnen/Straßen fragt. Dann ausschließlich nummerierte Google-Routes-Schritte ausgeben, keine Ein-Zeilen-Kette.",
         "Maut-Rubrik-Regel: Eine Maut-/Vignetten-Rubrik darf nur erscheinen, wenn offizielle Mautdaten injiziert sind. Sonst schreibe höchstens unter `Nicht von Research Guard geprüft`: `Maut/Vignette wurde von Research Guard nicht geprüft.`",
         "Verbotene-Rubriken-Regel: Verwende keine Rubriken oder Aussagen wie `Meine Empfehlung`, `Plausibler Ladeplan`, `Ideale Stopps`, `Stärkster Kandidat`, `Wichtige Hinweise: Vignette nötig`, wenn diese Inhalte nicht offiziell berechnet oder belegt sind.",
@@ -1776,7 +1777,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         lines.append(f"Route-Shape-Diagnostik: {json.dumps(route_shape, ensure_ascii=False)}")
     if route_corridor and route_corridor.get("text"):
         lines.append(f"Geprüfte Verlaufskette aus Google Routes: {route_corridor.get('text')}")
-        lines.append("Verlaufsketten-Regel: Du darfst exakt diese Kette verwenden oder weglassen. Ergänze, korrigiere oder erweitere sie nicht aus Weltwissen.")
+        lines.append("Verlaufsketten-Regel: Du darfst exakt diese Kette verwenden oder weglassen. Ergänze, korrigiere oder erweitere sie nicht aus Weltwissen. Wenn du sie verwendest, schreibe `Geprüfte Verlaufskette: ...`, nicht `Verlauf: ...`.")
     else:
         lines.append("Geprüfte Verlaufskette aus Google Routes: Nicht verfügbar. Keine Autobahn-/Straßenkette nennen.")
     if include_route_steps and route_steps and route_steps.get("steps"):
@@ -1895,6 +1896,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Ordne Lade-/Tankkandidaten nicht frei zwischen Google-Routes-Schritten ein und erfinde keine Segmentkilometer zwischen Kandidaten.",
         "Nutze nur diese Rubriken: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`.",
         "In der Rubrik `Route` sind nur Start, Ziel, Gesamtdistanz, Gesamtfahrzeit und die gespeicherte `Geprüfte Verlaufskette` erlaubt. Keine selbst gebaute Zeile `Verlauf:`, keine manuell ergänzten Autobahnen/Straßen, keine Pässe, keine Maut.",
+        "Wenn du die gespeicherte geprüfte Kette in der Antwort nennst, muss die Zeile exakt mit `Geprüfte Verlaufskette:` beginnen. Schreibe niemals `Verlauf:` oder `Streckenverlauf:` für diese kompakte Kette.",
         "`Streckenverlauf` nur bei ausdrücklicher Nachfrage und dann nur als nummerierte gespeicherte Google-Routes-Schritte, nie als Ein-Zeilen-Autobahnkette.",
         "Maut/Vignette nur als `nicht von Research Guard geprüft`, sofern keine offiziellen Mautdaten gespeichert sind.",
         "In `Grobe Einordnung` sind keine SoC-Prozente, Ladefenster, Ladezeit-Minuten, Segmentkilometer oder `das sollte reichen/durchbringen`-Aussagen erlaubt.",
@@ -1915,7 +1917,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         lines.append(f"Route-Shape-Diagnostik aus der letzten Route: {json.dumps(route_shape, ensure_ascii=False)}")
     if route_corridor and route_corridor.get("text"):
         lines.append(f"Gespeicherte geprüfte Verlaufskette aus Google Routes: {route_corridor.get('text')}")
-        lines.append("Verlaufsketten-Regel: Du darfst exakt diese Kette verwenden oder weglassen. Ergänze, korrigiere oder erweitere sie nicht aus Weltwissen.")
+        lines.append("Verlaufsketten-Regel: Du darfst exakt diese Kette verwenden oder weglassen. Ergänze, korrigiere oder erweitere sie nicht aus Weltwissen. Wenn du sie verwendest, schreibe `Geprüfte Verlaufskette: ...`, nicht `Verlauf: ...`.")
     else:
         lines.append("Gespeicherte geprüfte Verlaufskette aus Google Routes: Nicht verfügbar. Keine Autobahn-/Straßenkette nennen.")
     if include_route_steps and route_steps and route_steps.get("steps"):
