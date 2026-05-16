@@ -628,6 +628,66 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(payload["provider"], "duckduckgo-html")
         self.assertEqual(payload["cache_key"], "provider=duckduckgo-html:limit=3:deep=off:query=forchheim")
 
+    def test_cache_pruning_respects_max_entries_and_profile_ttl(self):
+        old_max = os.environ.get("RESEARCH_GUARD_CACHE_MAX_ENTRIES")
+        old_ttl = os.environ.get("RESEARCH_GUARD_CACHE_TTL_SECONDS")
+        old_current_ttl = os.environ.get("RESEARCH_GUARD_CACHE_TTL_CURRENT_SECONDS")
+        try:
+            os.environ["RESEARCH_GUARD_CACHE_MAX_ENTRIES"] = "20"
+            os.environ["RESEARCH_GUARD_CACHE_TTL_SECONDS"] = "3600"
+            os.environ["RESEARCH_GUARD_CACHE_TTL_CURRENT_SECONDS"] = "60"
+            cache = {
+                f"provider=duckduckgo-html:limit=3:deep=off:query=stable fact {idx}": {"ts": 1000 - idx, "payload": {}}
+                for idx in range(25)
+            }
+            cache["provider=duckduckgo-html:limit=3:deep=off:query=latest price example"] = {"ts": 930, "payload": {}}
+            pruned = guard._prune_cache(cache, now=1000)
+        finally:
+            if old_max is None:
+                os.environ.pop("RESEARCH_GUARD_CACHE_MAX_ENTRIES", None)
+            else:
+                os.environ["RESEARCH_GUARD_CACHE_MAX_ENTRIES"] = old_max
+            if old_ttl is None:
+                os.environ.pop("RESEARCH_GUARD_CACHE_TTL_SECONDS", None)
+            else:
+                os.environ["RESEARCH_GUARD_CACHE_TTL_SECONDS"] = old_ttl
+            if old_current_ttl is None:
+                os.environ.pop("RESEARCH_GUARD_CACHE_TTL_CURRENT_SECONDS", None)
+            else:
+                os.environ["RESEARCH_GUARD_CACHE_TTL_CURRENT_SECONDS"] = old_current_ttl
+
+        self.assertEqual(len(pruned), 20)
+        self.assertIn("provider=duckduckgo-html:limit=3:deep=off:query=stable fact 0", pruned)
+        self.assertNotIn("provider=duckduckgo-html:limit=3:deep=off:query=stable fact 24", pruned)
+        self.assertNotIn("provider=duckduckgo-html:limit=3:deep=off:query=latest price example", pruned)
+
+    def test_cache_can_be_disabled_without_writing_new_entries(self):
+        old_cache = os.environ.get("RESEARCH_GUARD_CACHE_TTL_SECONDS")
+        original_load = guard._load_cache
+        original_save = guard._save_cache
+        original_order = guard._provider_order
+        original_run = guard._run_provider
+        saved = []
+        try:
+            os.environ["RESEARCH_GUARD_CACHE_TTL_SECONDS"] = "0"
+            guard._load_cache = lambda: {}
+            guard._save_cache = lambda cache: saved.append(cache)
+            guard._provider_order = lambda: ["duckduckgo"]
+            guard._run_provider = lambda provider, query, limit: [{"title": "Fresh", "url": "https://example.com", "snippet": "ok"}]
+            payload = guard._search("Forchheim", 3)
+        finally:
+            guard._load_cache = original_load
+            guard._save_cache = original_save
+            guard._provider_order = original_order
+            guard._run_provider = original_run
+            if old_cache is None:
+                os.environ.pop("RESEARCH_GUARD_CACHE_TTL_SECONDS", None)
+            else:
+                os.environ["RESEARCH_GUARD_CACHE_TTL_SECONDS"] = old_cache
+
+        self.assertTrue(payload["success"])
+        self.assertFalse(saved)
+
     def test_provider_order_honors_configuration_and_optional_providers(self):
         old_provider = os.environ.get("RESEARCH_GUARD_PROVIDER")
         old_brave = os.environ.get("BRAVE_API_KEY")

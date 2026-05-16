@@ -36,7 +36,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | OpenClaw web-search registry integration | `[ ] ADAPT` | Replace with Hermes tool dispatch or built-in `tools.web_tools` / `web_search` path. |
 | DuckDuckGo HTML fallback | `[x]` | Present; keep as final fallback. |
 | Provider fallback chain | `[x]` | v0.7.0 adds `RESEARCH_GUARD_PROVIDER` and auto order: optional `web_search_plus`, Brave, Hermes built-in web search, optional SearXNG, DuckDuckGo. |
-| Query cache with TTL | `[x]` | Present, file-backed. Needs provider-aware keys and cache cleanup. |
+| Query cache with TTL | `[x]` | v0.7.3 keeps a bounded file cache, evicts expired entries, and uses shorter TTLs for current/news/price profiles. |
 | Provider-aware cache keys | `[x]` | v0.4.0 cache keys include provider, result count, reserved deep-fetch flag, and normalized query text. |
 | Trigger heuristics for factual/current questions | `[x]` | v0.7.1 adds `RESEARCH_GUARD_MODE` and broader German/English factual-risk triggers. |
 | Skip rules for code/files/terminal/memory/personal tasks | `[x]` | Present in simpler form. Port the expanded OpenClaw skip list. |
@@ -185,12 +185,12 @@ Goal: make every Research Guard decision inspectable.
 Goal: keep the hook fast and predictable.
 
 - [x] Basic file-backed query cache with TTL.
-- [ ] PORT Add maximum cache size.
-- [ ] PORT Add cleanup/eviction of old entries.
+- [x] Add maximum cache size.
+- [x] Add cleanup/eviction of old entries.
 - [x] Keep provider-aware cache keys.
 - [x] Expose cache entries, TTL, provider counts, and valid/expired entry counts through status output.
-- [ ] ADAPT Consider shorter TTL for current/news prompts and longer TTL for stable factual prompts.
-- [ ] PORT Bound all provider and deep-fetch calls with explicit timeouts.
+- [x] Add shorter TTL for current/news/price prompts while keeping stable factual prompts on the default TTL.
+- [x] Bound all provider and deep-fetch calls with explicit timeouts.
 - [ ] CHECK Verify Hermes hook latency behavior in CLI and gateway sessions.
 
 ## v0.11 - Domain-Specific Modes And High-Stakes Handling

@@ -14,7 +14,7 @@ import logging
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -1262,11 +1262,48 @@ def _load_cache() -> dict[str, Any]:
     return {}
 
 
+def _cache_max_entries() -> int:
+    return _env_int("RESEARCH_GUARD_CACHE_MAX_ENTRIES", 200, 20, 5000)
+
+
+def _cache_ttl_for_query(query: str) -> int:
+    base_ttl = _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400)
+    if base_ttl <= 0:
+        return 0
+    profiles = set(_query_source_profiles(query))
+    if profiles.intersection({"news-current", "price-product"}):
+        current_ttl = _env_int("RESEARCH_GUARD_CACHE_TTL_CURRENT_SECONDS", 900, 0, 86400)
+        return min(base_ttl, current_ttl) if current_ttl > 0 else 0
+    return base_ttl
+
+
+def _prune_cache(cache: dict[str, Any], now: float | None = None, query_ttl: int | None = None) -> dict[str, Any]:
+    now = time.time() if now is None else now
+    max_entries = _cache_max_entries()
+    default_ttl = _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400)
+    pruned: dict[str, Any] = {}
+    for key, item in cache.items():
+        if not isinstance(item, dict):
+            continue
+        try:
+            ts = float(item.get("ts", 0))
+        except Exception:
+            continue
+        query_match = re.search(r"(?:^|:)query=(.*)$", key)
+        ttl = query_ttl if query_ttl is not None and query_match else default_ttl
+        if query_ttl is None and query_match:
+            ttl = _cache_ttl_for_query(query_match.group(1))
+        if ttl and now - ts >= ttl:
+            continue
+        pruned[key] = item
+    items = sorted(pruned.items(), key=lambda kv: float(kv[1].get("ts", 0)), reverse=True)[:max_entries]
+    return dict(items)
+
+
 def _save_cache(cache: dict[str, Any]) -> None:
     try:
         CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        items = sorted(cache.items(), key=lambda kv: kv[1].get("ts", 0), reverse=True)[:200]
-        CACHE_PATH.write_text(json.dumps(dict(items), ensure_ascii=False, indent=2), encoding="utf-8")
+        CACHE_PATH.write_text(json.dumps(_prune_cache(cache), ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         logger.debug("Could not write research cache", exc_info=True)
 
@@ -1606,10 +1643,27 @@ def _run_provider(provider: str, query: str, limit: int) -> list[dict[str, str]]
     raise RuntimeError(f"Unknown provider: {provider}")
 
 
+def _provider_timeout_seconds() -> int:
+    return _env_int("RESEARCH_GUARD_PROVIDER_TIMEOUT", _env_int("RESEARCH_GUARD_TIMEOUT", 8, 2, 20), 1, 30)
+
+
+def _run_provider_with_timeout(provider: str, query: str, limit: int) -> list[dict[str, str]]:
+    timeout = _provider_timeout_seconds()
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(_run_provider, provider, query, limit)
+    try:
+        return future.result(timeout=timeout)
+    except FutureTimeoutError as exc:
+        future.cancel()
+        raise TimeoutError(f"provider timed out after {timeout}s") from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 def _search(query: str, limit: int, deep_profile: str = "off") -> dict[str, Any]:
-    cache_ttl = _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400)
-    cache = _load_cache()
     now = time.time()
+    cache_ttl = _cache_ttl_for_query(query)
+    cache = _prune_cache(_load_cache(), now)
     provider_order = _provider_order()
     provider_slugs = [_provider_slug(provider) for provider in provider_order]
     def cache_key(provider: str) -> str:
@@ -1628,7 +1682,7 @@ def _search(query: str, limit: int, deep_profile: str = "off") -> dict[str, Any]
     for provider in provider_order:
         slug = _provider_slug(provider)
         try:
-            results = _run_provider(provider, query, limit)
+            results = _run_provider_with_timeout(provider, query, limit)
             if not results:
                 errors.append(f"{slug}: no results")
                 continue
@@ -1644,8 +1698,9 @@ def _search(query: str, limit: int, deep_profile: str = "off") -> dict[str, Any]
             }
             if errors:
                 payload["fallback_errors"] = errors[-4:]
-            cache[key] = {"ts": now, "payload": payload}
-            _save_cache(cache)
+            if cache_ttl:
+                cache[key] = {"ts": now, "payload": payload}
+                _save_cache(cache)
             return payload
         except Exception as exc:
             errors.append(f"{slug}: {exc}")
@@ -1812,7 +1867,8 @@ def _cache_stats() -> dict[str, Any]:
                 provider = str(payload.get("provider") or "unknown")
         provider_counts[provider] = provider_counts.get(provider, 0) + 1
         ts = float(item.get("ts", 0)) if isinstance(item, dict) else 0
-        ttl = _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400)
+        query_match = re.search(r"(?:^|:)query=(.*)$", key)
+        ttl = _cache_ttl_for_query(query_match.group(1)) if query_match else _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400)
         if ttl and now - ts < ttl:
             valid_entries += 1
         else:
@@ -1822,6 +1878,8 @@ def _cache_stats() -> dict[str, Any]:
         "valid_entries": valid_entries,
         "expired_entries": expired_entries,
         "ttl_seconds": _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400),
+        "current_ttl_seconds": _env_int("RESEARCH_GUARD_CACHE_TTL_CURRENT_SECONDS", 900, 0, 86400),
+        "max_entries": _cache_max_entries(),
         "provider_counts": provider_counts,
         "path": str(CACHE_PATH),
     }
@@ -1836,6 +1894,12 @@ def _config_snapshot() -> dict[str, Any]:
         "provider_chain": [_provider_slug(provider) for provider in _provider_order()],
         "mode": _env_choice("RESEARCH_GUARD_MODE", "balanced", {"conservative", "balanced", "aggressive"}),
         "max_results": _env_int("RESEARCH_GUARD_MAX_RESULTS", 5, 1, 10),
+        "timeout_seconds": _env_int("RESEARCH_GUARD_TIMEOUT", 8, 2, 20),
+        "provider_timeout_seconds": _provider_timeout_seconds(),
+        "deep_fetch_timeout_seconds": _env_int("RESEARCH_GUARD_DEEP_FETCH_TIMEOUT", 5, 1, 12),
+        "cache_max_entries": _cache_max_entries(),
+        "cache_ttl_seconds": _env_int("RESEARCH_GUARD_CACHE_TTL_SECONDS", 3600, 0, 86400),
+        "cache_ttl_current_seconds": _env_int("RESEARCH_GUARD_CACHE_TTL_CURRENT_SECONDS", 900, 0, 86400),
         "min_confidence": _parse_confidence(os.getenv("RESEARCH_GUARD_MIN_CONFIDENCE"), "low"),
         "require_multiple_sources": _env_bool("RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES", False),
         "require_sources": _env_bool("RESEARCH_GUARD_REQUIRE_SOURCES", True),

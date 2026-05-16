@@ -1,3 +1,13 @@
+## 2026-05-15 - Cache- und Performance-Härtung ergänzt
+- **Typ:** feature
+- **Auslöser:** Nächster Angleichungsschritt nach OpenClaw Source-Profilen: stabilerer Dauerbetrieb.
+- **Cache:** `RESEARCH_GUARD_CACHE_MAX_ENTRIES` ergänzt; Cache-Schreiben bereinigt abgelaufene und überzählige Einträge. `RESEARCH_GUARD_CACHE_TTL_SECONDS=0` deaktiviert Cache-Lesen und -Schreiben.
+- **TTL-Profile:** `RESEARCH_GUARD_CACHE_TTL_CURRENT_SECONDS` ergänzt. Aktuelle/news-/preis-/release-nahe Queries verwenden standardmäßig eine kürzere TTL von 900 Sekunden, stabile Fakten weiter die normale TTL.
+- **Timeouts:** `RESEARCH_GUARD_PROVIDER_TIMEOUT` ergänzt und als per-provider Timeout-Klammer um alle Providerpfade gelegt; direkte HTTP-Provider und Deep Fetch behalten ihre eigenen expliziten Timeouts.
+- **Diagnostik:** Status/config zeigen Cache-Maximum, Standard-/Current-TTL sowie Provider- und Deep-Fetch-Timeouts.
+- **Version:** Plugin-Version auf `0.7.3` erhöht.
+- **Tests:** Coverage für Cache-Eviction, Current-TTL-Pruning und deaktivierten Cache ergänzt.
+
 ## 2026-05-15 - Domain-spezifische Quellenprofile ergänzt
 - **Typ:** feature
 - **Auslöser:** Angleichung an OpenClaw Source-Ranking für Software, kommunale Fakten, Preise/Produkte und aktuelle Themen.

@@ -56,7 +56,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected for this release:
 
 ```text
-version: 0.7.2
+version: 0.7.3
 ```
 
 Enable it:
@@ -89,8 +89,11 @@ Optional environment variables:
 | `BRAVE_API_KEY` / `RESEARCH_GUARD_BRAVE_API_KEY` | empty | Brave Search API key for the `brave` provider or `auto` chain |
 | `RESEARCH_GUARD_SEARXNG_URL` | empty | Base URL for a SearXNG instance, used by the `searxng` provider or optional `auto` fallback |
 | `RESEARCH_GUARD_MAX_RESULTS` | `5` | Search results to inject, clamped 1-10 |
-| `RESEARCH_GUARD_TIMEOUT` | `8` | DuckDuckGo fallback timeout in seconds |
-| `RESEARCH_GUARD_CACHE_TTL_SECONDS` | `3600` | Query cache TTL |
+| `RESEARCH_GUARD_TIMEOUT` | `8` | Direct HTTP provider timeout in seconds |
+| `RESEARCH_GUARD_PROVIDER_TIMEOUT` | `8` | Overall per-provider timeout guard for all provider paths, including Hermes/tool providers |
+| `RESEARCH_GUARD_CACHE_TTL_SECONDS` | `3600` | Default query cache TTL; `0` disables writing and reading cached results |
+| `RESEARCH_GUARD_CACHE_TTL_CURRENT_SECONDS` | `900` | Shorter cache TTL for current/news/price/release style profiles |
+| `RESEARCH_GUARD_CACHE_MAX_ENTRIES` | `200` | Maximum file-cache entries retained after cleanup, clamped 20-5000 |
 | `RESEARCH_GUARD_PREFERRED_DOMAINS` | empty | Comma-separated domains to boost, e.g. `forchheim.de,bayern.de` |
 | `RESEARCH_GUARD_BLOCKED_DOMAINS` | empty | Comma-separated domains to exclude from injected sources |
 | `RESEARCH_GUARD_MIN_CONFIDENCE` | `low` | Minimum source confidence required for injection: `low`, `medium`, or `high` |
