@@ -1,5 +1,37 @@
 # Release Notes
 
+## v0.8.0-beta.16
+
+This beta closes the remaining route-answer wording loopholes.
+
+### Fixed
+
+- Route course answers must now be presented only as numbered Google Routes steps.
+- Local models are explicitly forbidden from creating compact highway chains such as `B470 -> A73 -> A3 -> ...`.
+- Toll/vignette/Brenner/Italian toll/elevation/pass-height claims are blocked unless official data was injected.
+- Charger candidates with good connector data may only be described as `plausibel zu prüfen` or `stärker belegter Kandidat`.
+- Wording such as `ideal`, `best option`, `high availability`, `recommendation`, or `the ID.7 charges fast here` is explicitly blocked unless a real optimization/live source exists.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.16
+```
+
+Expected tests:
+
+```text
+Ran 71 tests
+OK
+```
+
 ## v0.8.0-beta.15
 
 This beta tightens multi-stop route planning so local models cannot turn candidate chargers into invented route segments.

@@ -1,3 +1,12 @@
+## 2026-05-16 - Streckenverlauf und Ladeempfehlungen härter begrenzt
+- **Typ:** fix
+- **Problem:** Hermes konnte weiterhin eigene kompakte Autobahnketten, Mautpflicht-Hinweise und zu starke Ladeempfehlungen wie `ideal`, `hohe Verfügbarkeit` oder `der ID.7 lädt hier schnell` formulieren.
+- **Änderung:** Streckenverläufe dürfen nur noch als nummerierte Google-Routes-Schritte wiedergegeben werden. Eigene Autobahnketten wie `B470 -> A73 -> A3 -> ...` sind ausdrücklich verboten.
+- **Maut:** Mautpflicht, Vignette, Brennermaut, Italien-Maut, Höhenmeter und Passhöhen dürfen nicht mehr als Fakt genannt werden, wenn keine offiziellen Daten injiziert wurden.
+- **Ladestopps:** Gute Connector-Daten erlauben nur noch `plausibel zu prüfen` oder `stärker belegter Kandidat`, keine echte Empfehlung oder Verfügbarkeitsaussage.
+- **Version:** Plugin version raised to `0.8.0-beta.16`.
+- **Tests:** Context tests now assert the stricter wording for route-course and charger-candidate language.
+
 ## 2026-05-16 - Mehrstopp-Ladeplanung robuster begrenzt
 - **Typ:** fix
 - **Problem:** Hermes konnte Ladepunkt-Kandidaten noch frei in Google-Routes-Schritte einsortieren und daraus erfundene Etappen, Segmentkilometer oder eine angebliche Zwei-Stopp-Ladeplanung bauen.

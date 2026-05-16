@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.15"
+__version__ = "0.8.0-beta.16"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1655,6 +1655,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Wichtige Grenze: Das ist eine grobe Routen- und Stopp-Kandidaten-Grundlage, keine garantierte optimale Lade- oder Tankplanung.",
         "Planungsstatus: Research Guard liefert Route + Places-Kandidaten. Es berechnet KEINE optimierte Stoppreihenfolge, KEINE Etappendistanzen zwischen Kandidaten und KEINE SoC-/Ladezeitkurve.",
         "Stoppsprache: Verwende `Kandidaten`, `mögliche Stopps` oder `zu prüfen`, aber nicht `ideale Stopps`, `optimal` oder `empfohlen`, wenn Research Guard diese Optimierung nicht ausdrücklich berechnet hat.",
+        "Bewertungssprache: Wenn Kandidaten gute Connector-Daten haben, schreibe höchstens `plausibel zu prüfen` oder `stärker belegter Kandidat`. Schreibe nicht `Empfehlung`, `ideal`, `beste Option`, `hohe Verfügbarkeit`, `der ID.7 lädt hier schnell` oder ähnliche Optimierungsaussagen.",
         "Places-Pflicht: Nenne ausschließlich die unten aufgeführten Places-Kandidaten. Erfinde keine weiteren Ladeparks, Supercharger, Tankstellen, Anbieter oder Ziel-Ladepunkte.",
         "Segmentpflicht: Nenne keine Kilometerangaben oder Zeitangaben zwischen Start, Kandidaten und Ziel, außer sie stehen ausdrücklich im Routen-Kontext.",
         "Wenn der Nutzer ideale Lade-/Tankstopps verlangt, sage klar: Research Guard liefert Kandidaten entlang/nahe der Route, aber keine echte ABRP-/Live-Ladeplanung oder fahrzeugspezifisch optimierte Stoppreihenfolge.",
@@ -1671,8 +1672,8 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Wenn Lade-/Tankkandidaten nur an Start, Ziel oder einem einzelnen Routenpunkt gefunden wurden, sage genau das. Ergänze KEINE unterwegs liegenden Stopps aus Trainingswissen.",
         "Erfinde keine Zwischenorte, Autobahnen, Pässe oder Umwege, die nicht im Kontext stehen. Wenn der Nutzer nach dem Verlauf fragt, nutze nur Distanz/Zeit und Route-Shape-Diagnostik oder sage, dass keine Ortsnamen vorliegen.",
         "Streckenverlauf-Regel: Nenne Autobahnen, Straßen, Anschlussstellen, Grenzübergänge oder Zwischenorte nur, wenn sie unten in `Streckenverlauf aus Google Routes` stehen. Wenn keine Schritte vorhanden sind, sage: `Der detaillierte Streckenverlauf liegt im Research-Guard-Kontext nicht vor.`",
-        "Verlaufsformat-Regel: Wenn du den Streckenverlauf ausgibst, kopiere/summarisiere nur die Google-Routes-Schritte in derselben Reihenfolge. Erstelle keine eigene Autobahnkette und korrigiere/ergänze keine Schritte aus Weltwissen.",
-        "Maut-/Kosten-Regel: Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Höhenmeter, Passhöhen oder Grenzdetails. Google Routes/Places liefern hier keine offiziellen Maut- oder Höhenmeterdaten.",
+        "Verlaufsformat-Regel: Gib den Streckenverlauf nur als nummerierte `Google-Routes-Schritte` aus. Erstelle KEINE eigene kompakte Autobahnkette wie `B470 -> A73 -> A3 -> ...`, keine korrigierte Route und keine Ergänzungen aus Weltwissen.",
+        "Maut-/Kosten-Regel: Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Mautpflicht, Höhenmeter, Passhöhen oder Grenzdetails. Wenn der Nutzer danach fragt, schreibe: `Research Guard hat dazu keine offiziellen Maut-/Vignetten-/Höhendaten injiziert.`",
         "Stopppositions-Regel: `Routenpunkt`, `route_position` und `route_progress_percent_approx` sind nur grobe Suchbereiche entlang der Polyline. Verwende sie nicht als exakte Stoppreihenfolge, Etappe, Segmentdistanz oder Beweis, dass ein Ladepunkt direkt auf der Route liegt.",
         "Mehrstopps-Regel: Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, liefere nur eine Kandidatenliste nach grober Routenposition. Behaupte keine optimierte Zwei-Stopp-Route, keine Etappen wie `Stop 1 -> Stop 2`, und keine Segmentkilometer, solange Research Guard keine echte Segment-/SoC-Optimierung liefert.",
         "Konflikt-Regel: Wenn nur ein Kandidat mit bestätigten Connector-/Leistungsdaten im relevanten unterwegs-Bereich vorhanden ist, sage das klar, statt einen zweiten Ladepunkt als gleichwertigen Stop zu behandeln.",
@@ -1788,13 +1789,14 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Wenn die Anschlussfrage eine geänderte Route, aktuelle Live-Verfügbarkeit, neue Stopps oder neue Verkehrsdaten verlangt, sage klar, dass dafür eine neue Routenabfrage nötig ist.",
         "Planungsstatus: Der gespeicherte Kontext enthält Route + Places-Kandidaten, aber keine optimierte Stoppreihenfolge, keine Etappendistanzen zwischen Kandidaten und keine SoC-/Ladezeitkurve.",
         "Nenne ausschließlich die gespeicherten Places-Kandidaten und bezeichne sie nicht als ideal, optimal oder garantiert empfohlen, außer diese Optimierung steht ausdrücklich im Kontext.",
+        "Wenn Kandidaten gute Connector-Daten haben, schreibe höchstens `plausibel zu prüfen` oder `stärker belegter Kandidat`. Schreibe nicht `Empfehlung`, `ideal`, `beste Option`, `hohe Verfügbarkeit`, `der ID.7 lädt hier schnell` oder ähnliche Optimierungsaussagen.",
         "Erfinde keine zusätzlichen Ladeparks, Tankstellen, Segment-Kilometer, SoC-Werte, Ladezeiten, Ladeleistungen, Preise oder Live-Verfügbarkeiten.",
         "Wenn du Reichweite, Energiebedarf oder Ladestopp-Anzahl schätzt, nutze nur die gespeicherte Energie-Plausibilitätsrechnung und rechne keine widersprüchlichen Werte aus.",
         "Nenne keine 20-80%-Fenster, Minuten-Ladezeiten, Ziel-SoC oder Rest-SoC, wenn diese nicht ausdrücklich im gespeicherten Kontext stehen.",
         "Startbereich-Ladepunkte sind bei vollem Startakku nur Vorab-Optionen, nicht automatisch der erste Routenstopp.",
         "Erfinde keine Aussagen zu Raststätten, Kaffee, WC, Shops, Zuverlässigkeit, Preisen, Betreiberqualität oder Tesla-Fremdmarken-Freigaben.",
-        "Bei Fragen zum Streckenverlauf: Nutze nur gespeicherte Google-Routes-Schritte. Wenn keine Schritte gespeichert sind, sage, dass der detaillierte Streckenverlauf im Research-Guard-Kontext nicht vorliegt.",
-        "Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Höhenmeter, Passhöhen, Grenzdetails, Autobahnen oder Anschlussstellen außerhalb der gespeicherten Google-Routes-Schritte.",
+        "Bei Fragen zum Streckenverlauf: Nutze nur gespeicherte Google-Routes-Schritte. Gib sie nur als nummerierte Schritte aus; keine eigene kompakte Autobahnkette und keine Ergänzungen aus Weltwissen.",
+        "Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Mautpflicht, Höhenmeter, Passhöhen, Grenzdetails, Autobahnen oder Anschlussstellen außerhalb der gespeicherten Google-Routes-Schritte.",
         "Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, aber nur gespeicherte Kandidaten vorliegen, liefere keine selbst gebaute Etappenplanung. Liste Kandidaten nach grober Routenposition und sage, dass Research Guard keine optimierte Mehrstopp-Route berechnet.",
         "Ordne Lade-/Tankkandidaten nicht frei zwischen Google-Routes-Schritten ein und erfinde keine Segmentkilometer zwischen Kandidaten.",
         f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
