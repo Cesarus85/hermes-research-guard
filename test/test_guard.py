@@ -907,6 +907,27 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertFalse(fuel_request["needs_ev_chargers"])
         self.assertTrue(fuel_request["needs_fuel_stops"])
 
+    def test_route_planning_supports_plain_route_without_stops(self):
+        prompt = "Plane die Route von Forchheim nach Riva del Garda."
+
+        self.assertTrue(guard._is_route_planning_prompt(prompt))
+        request = guard._extract_route_request(prompt)
+
+        self.assertEqual(request["origin"], "Forchheim")
+        self.assertEqual(request["destination"], "Riva del Garda")
+        self.assertFalse(request["needs_ev_chargers"])
+        self.assertFalse(request["needs_fuel_stops"])
+
+    def test_route_planning_keeps_combustion_vehicle_context_generic(self):
+        prompt = "Plane die Route von Forchheim nach Riva del Garda mit einem VW Golf."
+
+        self.assertTrue(guard._is_route_planning_prompt(prompt))
+        request = guard._extract_route_request(prompt)
+
+        self.assertFalse(request["needs_ev_chargers"])
+        self.assertFalse(request["needs_fuel_stops"])
+        self.assertEqual(request["preferences"]["vehicle_hint"], "VW Golf")
+
     def test_route_planning_detects_ev_from_battery_and_vehicle_context(self):
         prompt = (
             "plane die Route von Forchheim nach Riva del Garda. Ich fahre mit einem "
@@ -1092,6 +1113,60 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Example Fuel", result["context"])
         self.assertNotIn("Ladepunkt-Kandidaten: Keine", result["context"])
         self.assertEqual(guard.DECISIONS[-1]["route_planning"]["fuel_stop_candidate_count"], 1)
+
+    def test_route_planning_context_supports_route_only(self):
+        guard.DECISIONS.clear()
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        original_payload = guard._route_planning_payload
+        try:
+            os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = "true"
+            os.environ["GOOGLE_MAPS_API_KEY"] = "test-key"
+
+            def fake_payload(origin, destination, needs_ev=True, needs_fuel=False):
+                self.assertFalse(needs_ev)
+                self.assertFalse(needs_fuel)
+                return {
+                    "success": True,
+                    "provider": "google-maps",
+                    "origin": origin,
+                    "destination": destination,
+                    "route": {
+                        "distance_meters": 620000,
+                        "duration_seconds": 25200,
+                        "static_duration_seconds": 24000,
+                    },
+                    "chargers": [],
+                    "fuel_stops": [],
+                    "warnings": [],
+                    "cached": False,
+                }
+
+            guard._route_planning_payload = fake_payload
+            result = guard.pre_llm_research_guard(
+                "s1",
+                "Plane die Route von Forchheim nach Riva del Garda.",
+                "qwen3",
+                "ollama",
+            )
+        finally:
+            guard._route_planning_payload = original_payload
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+            if old_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_key
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("Research Guard: Routen-Kontext", result["context"])
+        self.assertIn("620 km", result["context"])
+        self.assertNotIn("Ladepunkt-Kandidaten", result["context"])
+        self.assertNotIn("Tankstopp-Kandidaten", result["context"])
+        self.assertEqual(guard.DECISIONS[-1]["route_planning"]["charger_candidate_count"], 0)
+        self.assertEqual(guard.DECISIONS[-1]["route_planning"]["fuel_stop_candidate_count"], 0)
 
     def test_route_planning_status_reports_config(self):
         old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")

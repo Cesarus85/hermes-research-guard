@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.6`
+**Beta release:** `v0.8.0-beta.7`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -24,7 +24,7 @@ What is considered beta-stable:
 - source scoring with official, municipal, documentation, vendor, project, package registry, release-note, pricing, standards, and reference signals
 - weak-source demotion for aggregators, forums/social pages, scraper-like results, paywall/snippet-only pages, listicles, coupons, duplicate URLs, and repeated same-domain evidence
 - structured deep fetch for tracklists, tables, release notes, prices, benchmarks, population facts, and other detail-heavy prompts
-- optional Google Maps route context for rough route, traffic-duration, EV charging-station, and fuel-stop prompts
+- optional Google Maps route context for rough route prompts, with EV charging-station and fuel-stop candidates only when requested or implied
 - context follow-up handling for questions such as "Where did you get that from?" or "What do you think about it?"
 - `research_guard_status` and `research_guard_diagnostics` diagnostics
 - `research_guard_config` for persistent plugin configuration without editing service environment variables
@@ -81,7 +81,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.6
+version: 0.8.0-beta.7
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -118,7 +118,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.6
+version: 0.8.0-beta.7
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:

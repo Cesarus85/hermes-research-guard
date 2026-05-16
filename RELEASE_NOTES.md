@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.8.0-beta.7
+
+This beta makes route planning more flexible.
+
+### Changed
+
+- Clear route prompts now trigger route planning even without explicit charging or fuel-stop wording.
+- EV charger candidates are only fetched when EV/charging/battery context is present.
+- Fuel-stop candidates are only fetched when fuel/tank-stop context is present.
+- Generic vehicle hints such as `mit einem VW Golf` are retained as route context without forcing charger or fuel-stop searches.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.7
+```
+
+Expected tests:
+
+```text
+Ran 56 tests
+OK
+```
+
 ## v0.8.0-beta.6
 
 This beta fixes an EV route-planning trigger gap.

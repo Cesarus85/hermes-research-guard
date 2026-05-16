@@ -1,3 +1,11 @@
+## 2026-05-16 - Route Planning ohne Lade-/Tankangabe aktiviert
+- **Typ:** feature
+- **Änderung:** Klare Routenfragen wie `Plane die Route von A nach B` triggern jetzt Route Planning auch ohne Lade- oder Tankstopp-Angabe.
+- **Stopps:** EV-Ladepunkte werden nur bei EV-/Akku-/Ladekontext gesucht; Tankstellen nur bei Tank-/Fuel-Kontext. Reine Route bleibt reine Route.
+- **Fahrzeugkontext:** Generische Fahrzeughinweise wie `mit einem VW Golf` werden als Kontext übernommen, ohne automatisch Tankstopps zu erzwingen.
+- **Version:** Plugin version raised to `0.8.0-beta.7`.
+- **Tests:** Test suite expanded from 53 to 56 dependency-free tests.
+
 ## 2026-05-16 - EV-Route-Trigger für Batterie-/Fahrzeugkontext erweitert
 - **Typ:** fix
 - **Problem:** Routenfragen wie `VW ID 7 mit 77 kWh Batterie` wurden nicht als EV-Routenplanung erkannt, wenn keine Wörter wie `E-Auto` oder `Ladeplanung` vorkamen.

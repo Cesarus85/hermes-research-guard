@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.6"
+__version__ = "0.8.0-beta.7"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -954,9 +954,10 @@ def _is_route_planning_prompt(message: str) -> bool:
         return False
     if NO_RESEARCH_PREFIX_RE.match(text) or SLASH_COMMAND_RE.match(text):
         return False
-    has_route = bool(ROUTE_PLANNING_RE.search(text) or any(pattern.search(text) for pattern in ROUTE_FROM_TO_PATTERNS))
+    has_route_term = bool(ROUTE_PLANNING_RE.search(text))
+    has_from_to = bool(any(pattern.search(text) for pattern in ROUTE_FROM_TO_PATTERNS))
     has_ev_or_fuel = bool(EV_OR_FUEL_RE.search(text))
-    return has_route and has_ev_or_fuel
+    return has_route_term and (has_from_to or has_ev_or_fuel)
 
 
 def _trim_route_place(value: str) -> str:
@@ -997,6 +998,12 @@ def _extract_route_request(message: str) -> dict[str, Any]:
     )
     if vehicle_match:
         preferences["vehicle_hint"] = re.sub(r"\s+", " ", vehicle_match.group(1)).strip()
+    generic_vehicle_match = re.search(
+        r"\b(?:mit|in)\s+(?:einem|einer|meinem|meiner|unserem|unserer)\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß0-9 .-]{1,40})(?=\s+(?:mit|und|von|nach|vollbeladen|beladen|$)|[,.!?])",
+        text,
+    )
+    if generic_vehicle_match and not preferences.get("vehicle_hint"):
+        preferences["vehicle_hint"] = re.sub(r"\s+", " ", generic_vehicle_match.group(1)).strip(" .,-")
     passengers_match = re.search(r"\b(\d{1,2})\s+personen\b", text, flags=re.IGNORECASE)
     if passengers_match:
         preferences["passengers"] = int(passengers_match.group(1))
