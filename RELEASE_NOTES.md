@@ -1,5 +1,43 @@
 # Release Notes
 
+## v0.8.0-beta.9
+
+This beta adds explicit Google Routes API diagnostics for route-planning problems.
+
+### New
+
+- Added `research_guard_route_test`, a manual Hermes tool that validates the configured Google Maps key against Routes API.
+- The diagnostic returns distance, duration, static duration, decoded polyline point count, sampled route coordinates, and a route bounding box.
+- Route context now includes route-shape diagnostics so local models are less likely to invent named detours or impossible route geography.
+
+### Usage
+
+```text
+Use research_guard_route_test with origin Forchheim and destination Riva del Garda.
+```
+
+If this succeeds, the key can call Routes API. If chat output still claims a strange route, the model is misreading or inventing beyond the injected route context.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.9
+```
+
+Expected tests:
+
+```text
+Ran 61 tests
+OK
+```
+
 ## v0.8.0-beta.8
 
 This beta adds route follow-up handling.

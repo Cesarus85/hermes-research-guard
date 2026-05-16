@@ -1168,6 +1168,83 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(guard.DECISIONS[-1]["route_planning"]["charger_candidate_count"], 0)
         self.assertEqual(guard.DECISIONS[-1]["route_planning"]["fuel_stop_candidate_count"], 0)
 
+    def test_route_diagnostic_parses_routes_response_shape(self):
+        payload = guard._route_diagnostic_from_response(
+            "Forchheim",
+            "Riva del Garda",
+            {
+                "routes": [
+                    {
+                        "distanceMeters": 620000,
+                        "duration": "25200s",
+                        "staticDuration": "24000s",
+                        "polyline": {"encodedPolyline": "_p~iF~ps|U_ulLnnqC_mqNvxq`@"},
+                    }
+                ]
+            },
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["distance_meters"], 620000)
+        self.assertEqual(payload["route_shape"]["point_count"], 3)
+        self.assertEqual(len(payload["route_shape"]["sample_points"]), 3)
+
+    def test_route_test_tool_reports_missing_key(self):
+        old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        old_rg_key = os.environ.get("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY")
+        old_config_path = guard.CONFIG_PATH
+        old_plugin_config_path = guard.PLUGIN_CONFIG_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                guard.CONFIG_PATH = Path(tmp) / "research-guard.json"
+                guard.PLUGIN_CONFIG_PATH = Path(tmp) / "missing-plugin-config.json"
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+                os.environ.pop("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY", None)
+                payload = json.loads(guard.research_guard_route_test({"origin": "Forchheim", "destination": "Riva del Garda"}))
+        finally:
+            guard.CONFIG_PATH = old_config_path
+            guard.PLUGIN_CONFIG_PATH = old_plugin_config_path
+            if old_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_key
+            if old_rg_key is None:
+                os.environ.pop("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["RESEARCH_GUARD_GOOGLE_MAPS_API_KEY"] = old_rg_key
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("API key", payload["error"])
+
+    def test_route_test_tool_calls_routes_api_when_key_configured(self):
+        guard.DECISIONS.clear()
+        old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        original_routes = guard._google_routes_compute
+        try:
+            os.environ["GOOGLE_MAPS_API_KEY"] = "test-key"
+            guard._google_routes_compute = lambda origin, destination, api_key: {
+                "routes": [
+                    {
+                        "distanceMeters": 620000,
+                        "duration": "25200s",
+                        "staticDuration": "24000s",
+                        "polyline": {"encodedPolyline": "_p~iF~ps|U_ulLnnqC_mqNvxq`@"},
+                    }
+                ]
+            }
+            payload = json.loads(guard.research_guard_route_test({"origin": "Forchheim", "destination": "Riva del Garda"}))
+        finally:
+            guard._google_routes_compute = original_routes
+            if old_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_key
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["provider"], "google-maps-routes")
+        self.assertEqual(payload["distance_meters"], 620000)
+        self.assertEqual(guard.DECISIONS[-1]["reason"], "manual research_guard_route_test tool call")
+
     def test_route_followup_reuses_previous_route_context_without_google(self):
         guard.DECISIONS.clear()
         old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")

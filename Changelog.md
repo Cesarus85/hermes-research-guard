@@ -1,3 +1,11 @@
+## 2026-05-16 - Google-Routes-Diagnosetool ergänzt
+- **Typ:** diagnostics
+- **Problem:** Bei unplausiblen Routen war nicht eindeutig sichtbar, ob Google Routes wirklich antwortete oder ob das Modell Route/Orte erfand.
+- **Tool:** Neues Hermes-Tool `research_guard_route_test` validiert den konfigurierten Google-Maps-Key gegen Routes API und gibt Distanz, Dauer, Polyline-Punktzahl, Sample-Koordinaten und Bounding Box zurück.
+- **Guardrails:** Routen-Kontext enthält jetzt Route-Shape-Diagnostik und weist das Modell an, keine Zwischenorte, Autobahnen, Pässe oder Umwege zu erfinden.
+- **Version:** Plugin version raised to `0.8.0-beta.9`.
+- **Tests:** Test suite expanded from 58 to 61 dependency-free tests.
+
 ## 2026-05-16 - Routen-Follow-ups ergänzt
 - **Typ:** feature
 - **Änderung:** Research Guard speichert jetzt einen kleinen strukturierten Snapshot des letzten Routen-Kontexts im Statuspuffer.

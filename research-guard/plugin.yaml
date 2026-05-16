@@ -1,5 +1,5 @@
 name: research-guard
-version: 0.8.0-beta.8
+version: 0.8.0-beta.9
 description: "Hermes Agent plugin that injects compact web research and optional Google Maps route, EV charging, and fuel-stop context before local/small models answer."
 author: Iris / Stefan
 provides_hooks:
@@ -9,3 +9,4 @@ provides_tools:
   - research_guard_status
   - research_guard_diagnostics
   - research_guard_config
+  - research_guard_route_test

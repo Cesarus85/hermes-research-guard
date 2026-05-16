@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.8`
+**Beta release:** `v0.8.0-beta.9`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -26,6 +26,7 @@ What is considered beta-stable:
 - structured deep fetch for tracklists, tables, release notes, prices, benchmarks, population facts, and other detail-heavy prompts
 - optional Google Maps route context for rough route prompts, with EV charging-station and fuel-stop candidates only when requested or implied
 - route follow-up handling that reuses the last route context or refreshes Google for return/recalculate requests
+- `research_guard_route_test` to validate the Google Routes API key and inspect raw route diagnostics
 - context follow-up handling for questions such as "Where did you get that from?" or "What do you think about it?"
 - `research_guard_status` and `research_guard_diagnostics` diagnostics
 - `research_guard_config` for persistent plugin configuration without editing service environment variables
@@ -82,7 +83,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.8
+version: 0.8.0-beta.9
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -119,7 +120,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.8
+version: 0.8.0-beta.9
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -322,6 +323,16 @@ Und zurück?
 ```text
 Berechne die Route nochmal neu.
 ```
+
+### Route Diagnostics
+
+If a route looks implausible, validate the Google Routes API directly:
+
+```text
+Use research_guard_route_test with origin Forchheim and destination Riva del Garda.
+```
+
+The tool returns whether the configured key worked, the Routes API distance/duration, and route-shape diagnostics such as decoded polyline point count, sample coordinates, and a bounding box. If this tool fails, the key, billing, or enabled APIs are the likely issue. If this tool succeeds but the chat answer invents a strange route, the model ignored or over-interpreted the injected context.
 
 ## Source Quality
 

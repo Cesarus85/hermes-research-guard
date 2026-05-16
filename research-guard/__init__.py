@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.8"
+__version__ = "0.8.0-beta.9"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1139,6 +1139,60 @@ def _sample_route_points(points: list[dict[str, float]], count: int) -> list[dic
     return [points[int(index)] for index in indexes]
 
 
+def _route_shape_summary(encoded_polyline: str) -> dict[str, Any]:
+    points = _decode_polyline(encoded_polyline or "")
+    if not points:
+        return {"point_count": 0, "sample_points": [], "bbox": None}
+    latitudes = [point["latitude"] for point in points]
+    longitudes = [point["longitude"] for point in points]
+    sample_points = _sample_route_points(points, min(5, len(points)))
+    return {
+        "point_count": len(points),
+        "sample_points": [
+            {"latitude": round(point["latitude"], 5), "longitude": round(point["longitude"], 5)}
+            for point in sample_points
+        ],
+        "bbox": {
+            "min_latitude": round(min(latitudes), 5),
+            "max_latitude": round(max(latitudes), 5),
+            "min_longitude": round(min(longitudes), 5),
+            "max_longitude": round(max(longitudes), 5),
+        },
+    }
+
+
+def _route_diagnostic_from_response(origin: str, destination: str, route_data: dict[str, Any]) -> dict[str, Any]:
+    routes = route_data.get("routes") if isinstance(route_data.get("routes"), list) else []
+    if not routes:
+        return {
+            "ok": False,
+            "origin": origin,
+            "destination": destination,
+            "error": "Google Routes returned no route",
+            "raw_status": route_data.get("error") if isinstance(route_data, dict) else None,
+        }
+    route = routes[0]
+    encoded_polyline = ((route.get("polyline") or {}).get("encodedPolyline") or "")
+    distance_meters = route.get("distanceMeters")
+    duration_seconds = _parse_google_duration_seconds(route.get("duration"))
+    static_duration_seconds = _parse_google_duration_seconds(route.get("staticDuration"))
+    return {
+        "ok": True,
+        "provider": "google-maps-routes",
+        "origin": origin,
+        "destination": destination,
+        "distance_meters": distance_meters,
+        "distance": _format_distance(distance_meters),
+        "duration_seconds": duration_seconds,
+        "duration": _format_duration(duration_seconds),
+        "static_duration_seconds": static_duration_seconds,
+        "static_duration": _format_duration(static_duration_seconds),
+        "route_shape": _route_shape_summary(encoded_polyline),
+        "route_count": len(routes),
+        "note": "This validates that the configured Google Maps key can call Routes API. It does not validate Places API unless a route-planning prompt also requests stops.",
+    }
+
+
 def _json_post(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: int) -> dict[str, Any]:
     data = json.dumps(payload).encode("utf-8")
     request = Request(url, data=data, method="POST", headers={**headers, "Content-Type": "application/json"})
@@ -1299,6 +1353,7 @@ def _route_context_snapshot(payload: dict[str, Any], request: dict[str, Any]) ->
         "chargers": (payload.get("chargers") or [])[:12],
         "fuel_stops": (payload.get("fuel_stops") or [])[:12],
         "warnings": payload.get("warnings") or [],
+        "route_shape": payload.get("route_shape") or {},
         "provider": payload.get("provider"),
     }
 
@@ -1367,6 +1422,7 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
         "chargers": _dedupe_chargers(chargers, charger_limit),
         "fuel_stops": _dedupe_chargers(fuel_stops, fuel_limit),
         "warnings": warnings,
+        "route_shape": _route_shape_summary(polyline),
         "cached": False,
     }
     return payload
@@ -1377,6 +1433,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
     chargers = payload.get("chargers") if isinstance(payload.get("chargers"), list) else []
     fuel_stops = payload.get("fuel_stops") if isinstance(payload.get("fuel_stops"), list) else []
     preferences = request.get("preferences") if isinstance(request.get("preferences"), dict) else {}
+    route_shape = payload.get("route_shape") if isinstance(payload.get("route_shape"), dict) else {}
     lines = [
         "[Research Guard aktiv]",
         "Für diese aktuelle Nutzerfrage wurde automatisch Routen-Kontext aus Google Maps Platform abgerufen.",
@@ -1396,11 +1453,14 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Wenn Akku, Verbrauch, Start-SoC, gewünschter Ziel-SoC, Ladeleistung, Kraftstoffart oder Reichweite fehlen, nenne realistische Annahmen ausdrücklich oder frage kurz nach.",
         "Wenn du Ladepunkte nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte funktionierende Stopps.",
         "Wenn du Tankstellen nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte Kraftstoffverfügbarkeit oder Preisangabe.",
+        "Erfinde keine Zwischenorte, Autobahnen, Pässe oder Umwege, die nicht im Kontext stehen. Wenn der Nutzer nach dem Verlauf fragt, nutze nur Distanz/Zeit und Route-Shape-Diagnostik oder sage, dass keine Ortsnamen vorliegen.",
     ]
     if preferences:
         lines.append(f"Erkannte Nutzerparameter: {json.dumps(preferences, ensure_ascii=False)}")
     if payload.get("warnings"):
         lines.append(f"Hinweise: {' '.join(str(item) for item in payload.get('warnings') or [])}")
+    if route_shape:
+        lines.append(f"Route-Shape-Diagnostik: {json.dumps(route_shape, ensure_ascii=False)}")
     if chargers:
         lines.extend(["", "Ladepunkt-Kandidaten aus Places:"])
         for idx, charger in enumerate(chargers, 1):
@@ -1475,6 +1535,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
     preferences = request.get("preferences") if isinstance(request.get("preferences"), dict) else {}
     chargers = snapshot.get("chargers") if isinstance(snapshot.get("chargers"), list) else []
     fuel_stops = snapshot.get("fuel_stops") if isinstance(snapshot.get("fuel_stops"), list) else []
+    route_shape = snapshot.get("route_shape") if isinstance(snapshot.get("route_shape"), dict) else {}
     lines = [
         "[Research Guard: Routen-Follow-up]",
         "Der Nutzer stellt eine Anschlussfrage zum zuletzt von Research Guard bereitgestellten Routen-Kontext.",
@@ -1489,6 +1550,8 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         lines.append(f"Erkannte Nutzerparameter aus der letzten Route: {json.dumps(preferences, ensure_ascii=False)}")
     if snapshot.get("warnings"):
         lines.append(f"Hinweise aus der letzten Route: {' '.join(str(item) for item in snapshot.get('warnings') or [])}")
+    if route_shape:
+        lines.append(f"Route-Shape-Diagnostik aus der letzten Route: {json.dumps(route_shape, ensure_ascii=False)}")
     if chargers:
         lines.extend(["", "Letzte Ladepunkt-Kandidaten:"])
         for idx, charger in enumerate(chargers, 1):
@@ -3004,6 +3067,59 @@ def research_guard_config(args: dict, **kwargs) -> str:
     )
 
 
+def research_guard_route_test(args: dict, **kwargs) -> str:
+    """Manual tool: validate Google Routes API access and return route diagnostics."""
+    del kwargs
+    origin = str(args.get("origin") or "Forchheim").strip()
+    destination = str(args.get("destination") or "Riva del Garda").strip()
+    if not origin or not destination:
+        return json.dumps(
+            {"ok": False, "error": "origin and destination are required"},
+            ensure_ascii=False,
+            indent=2,
+        )
+    if not _route_api_key():
+        return json.dumps(
+            {
+                "ok": False,
+                "error": "Google Maps API key is not configured",
+                "config_path": str(CONFIG_PATH),
+                "hint": "Use research_guard_config with action=set_route_planning and google_maps_api_key=<key>.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    try:
+        route_data = _google_routes_compute(origin, destination, _route_api_key())
+        payload = _route_diagnostic_from_response(origin, destination, route_data)
+    except Exception as exc:
+        payload = {
+            "ok": False,
+            "provider": "google-maps-routes",
+            "origin": origin,
+            "destination": destination,
+            "error": str(exc),
+            "api_key_configured": True,
+            "api_key_preview": _masked_secret(_route_api_key()),
+        }
+    _record_decision(
+        "manual_search",
+        "manual research_guard_route_test tool call",
+        provider="google-maps-routes",
+        query=f"{origin} -> {destination}",
+        success=bool(payload.get("ok")),
+        route_planning={
+            "origin": origin,
+            "destination": destination,
+            "distance_meters": payload.get("distance_meters"),
+            "duration_seconds": payload.get("duration_seconds"),
+            "route_shape": payload.get("route_shape"),
+        },
+        error=payload.get("error"),
+    )
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
 def pre_llm_research_guard(session_id: str, user_message: str, model: str, platform: str, **kwargs):
     del session_id
     provider = _provider_from_context(platform, kwargs)
@@ -3189,6 +3305,18 @@ CONFIG_TOOL_SCHEMA = {
     },
 }
 
+ROUTE_TEST_TOOL_SCHEMA = {
+    "name": "research_guard_route_test",
+    "description": "Validate the configured Google Maps Platform key against Routes API and return route diagnostics for an origin/destination pair. Use this when route planning seems wrong or to confirm the key/API works.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "origin": {"type": "string", "description": "Route origin", "default": "Forchheim"},
+            "destination": {"type": "string", "description": "Route destination", "default": "Riva del Garda"},
+        },
+    },
+}
+
 
 def register(ctx):
     ctx.register_hook("pre_llm_call", pre_llm_research_guard)
@@ -3222,5 +3350,13 @@ def register(ctx):
         schema=CONFIG_TOOL_SCHEMA,
         handler=research_guard_config,
         emoji="⚙️",
+        max_result_size_chars=50_000,
+    )
+    ctx.register_tool(
+        name="research_guard_route_test",
+        toolset="research_guard",
+        schema=ROUTE_TEST_TOOL_SCHEMA,
+        handler=research_guard_route_test,
+        emoji="🗺️",
         max_result_size_chars=50_000,
     )
