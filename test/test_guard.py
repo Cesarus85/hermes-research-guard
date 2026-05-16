@@ -1057,6 +1057,15 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
                         "fuel_prices": [],
                     }
                 ] if needs_fuel else [],
+                "route_steps": {
+                    "count": 2,
+                    "shown": 2,
+                    "truncated": False,
+                    "steps": [
+                        {"index": 1, "instruction": "Auf A73 Richtung Nürnberg fahren", "distance": "35 km", "static_duration": "25 min"},
+                        {"index": 2, "instruction": "Auf A9 Richtung München wechseln", "distance": "170 km", "static_duration": "1 h 40 min"},
+                    ],
+                },
                 "warnings": [],
                 "cached": False,
                 "cache_key": "route=test",
@@ -1095,6 +1104,10 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Connector-Regel", result["context"])
         self.assertIn("Standort-Komfort-Regel", result["context"])
         self.assertIn("Tesla-CCS-Regel", result["context"])
+        self.assertIn("Streckenverlauf aus Google Routes", result["context"])
+        self.assertIn("Auf A73 Richtung Nürnberg fahren", result["context"])
+        self.assertIn("Maut-/Kosten-Regel", result["context"])
+        self.assertIn("keine offiziellen Maut-, Vignetten-, Höhenmeter- oder Grenzkosten", result["context"])
         self.assertIn("Datenquelle (Research Guard): Google Maps Platform Routes/Places", result["context"])
         self.assertEqual(guard.DECISIONS[-1]["action"], "injected")
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning")
@@ -1225,6 +1238,18 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
                         "duration": "25200s",
                         "staticDuration": "24000s",
                         "polyline": {"encodedPolyline": "_p~iF~ps|U_ulLnnqC_mqNvxq`@"},
+                        "legs": [
+                            {
+                                "steps": [
+                                    {
+                                        "distanceMeters": 35000,
+                                        "staticDuration": "1500s",
+                                        "navigationInstruction": {"instructions": "Auf <b>A73</b> Richtung Nürnberg fahren"},
+                                        "localizedValues": {"distance": {"text": "35 km"}, "staticDuration": {"text": "25 min"}},
+                                    }
+                                ]
+                            }
+                        ],
                     }
                 ]
             },
@@ -1234,6 +1259,34 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(payload["distance_meters"], 620000)
         self.assertEqual(payload["route_shape"]["point_count"], 3)
         self.assertEqual(len(payload["route_shape"]["sample_points"]), 3)
+        self.assertEqual(payload["route_steps"]["count"], 1)
+        self.assertEqual(payload["route_steps"]["steps"][0]["instruction"], "Auf A73 Richtung Nürnberg fahren")
+        self.assertEqual(payload["route_steps"]["steps"][0]["distance"], "35 km")
+
+    def test_google_routes_compute_requests_navigation_steps(self):
+        old_timeout = os.environ.get("RESEARCH_GUARD_ROUTE_TIMEOUT_SECONDS")
+        original_post = guard._json_post
+        captured = {}
+        try:
+            os.environ["RESEARCH_GUARD_ROUTE_TIMEOUT_SECONDS"] = "1"
+
+            def fake_post(url, payload, headers, timeout):
+                captured.update({"url": url, "payload": payload, "headers": headers, "timeout": timeout})
+                return {"routes": []}
+
+            guard._json_post = fake_post
+            guard._google_routes_compute("Forchheim", "Riva del Garda", "test-key")
+        finally:
+            guard._json_post = original_post
+            if old_timeout is None:
+                os.environ.pop("RESEARCH_GUARD_ROUTE_TIMEOUT_SECONDS", None)
+            else:
+                os.environ["RESEARCH_GUARD_ROUTE_TIMEOUT_SECONDS"] = old_timeout
+
+        field_mask = captured["headers"]["X-Goog-FieldMask"]
+        self.assertIn("routes.legs.steps.navigationInstruction.instructions", field_mask)
+        self.assertIn("routes.legs.steps.distanceMeters", field_mask)
+        self.assertIn("routes.legs.steps.localizedValues.distance.text", field_mask)
 
     def test_balanced_route_stop_candidates_spread_across_samples(self):
         stops = [
@@ -1375,6 +1428,12 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
                     "request": {"needs_ev_chargers": True, "needs_fuel_stops": False, "preferences": {"battery_kwh": 77}},
                     "chargers": [{"name": "Example Fast Charge", "address": "A9 Beispiel", "connectors": [], "google_maps_uri": "https://maps.example/1"}],
                     "fuel_stops": [],
+                    "route_steps": {
+                        "count": 1,
+                        "shown": 1,
+                        "truncated": False,
+                        "steps": [{"index": 1, "instruction": "Auf A73 Richtung Nürnberg fahren", "distance": "35 km", "static_duration": "25 min"}],
+                    },
                     "warnings": [],
                     "provider": "google-maps",
                 },
@@ -1401,6 +1460,51 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Erfinde keine zusätzlichen Ladeparks", result["context"])
         self.assertIn("Nenne keine 20-80%-Fenster", result["context"])
         self.assertIn("Startbereich-Ladepunkte sind bei vollem Startakku nur Vorab-Optionen", result["context"])
+        self.assertIn("Gespeicherter Streckenverlauf aus Google Routes", result["context"])
+        self.assertIn("Auf A73 Richtung Nürnberg fahren", result["context"])
+        self.assertIn("Erfinde keine Vignettenpreise", result["context"])
+        self.assertEqual(guard.DECISIONS[-1]["reason"], "route-followup-context")
+
+    def test_route_followup_recognizes_route_course_questions(self):
+        guard.DECISIONS.clear()
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        try:
+            os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = "true"
+            guard._record_decision(
+                "injected",
+                "route-planning",
+                provider="google-maps",
+                query="Forchheim -> Riva del Garda",
+                route_planning={"origin": "Forchheim", "destination": "Riva del Garda"},
+                route_context={
+                    "origin": "Forchheim",
+                    "destination": "Riva del Garda",
+                    "route": {"distance_meters": 620000, "duration_seconds": 25200},
+                    "request": {"needs_ev_chargers": False, "needs_fuel_stops": False, "preferences": {}},
+                    "route_steps": {
+                        "count": 1,
+                        "shown": 1,
+                        "truncated": False,
+                        "steps": [{"index": 1, "instruction": "Auf A73 Richtung Nürnberg fahren", "distance": "35 km"}],
+                    },
+                },
+            )
+
+            result = guard.pre_llm_research_guard(
+                "s1",
+                "Wie ist der Streckenverlauf?",
+                "qwen3",
+                "ollama",
+            )
+        finally:
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("Research Guard: Routen-Follow-up", result["context"])
+        self.assertIn("Auf A73 Richtung Nürnberg fahren", result["context"])
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-followup-context")
 
     def test_route_followup_refreshes_google_for_return_trip(self):

@@ -1,5 +1,42 @@
 # Release Notes
 
+## v0.8.0-beta.14
+
+This beta makes route-course answers functional instead of guessed.
+
+### New
+
+- Google Routes requests now include `routes.legs.steps.*` fields.
+- Route context injects Google navigation steps with instruction, distance, and duration when available.
+- Route diagnostics include the parsed step summary.
+
+### Fixed
+
+- Route follow-up detection now catches route-course questions such as `Streckenverlauf`, `Autobahn`, `Maut`, `Brenner`, and related wording.
+- Local models are instructed to name roads, highways, junctions, intermediate places, and segment distances only from Google Routes steps.
+- If no step data is present, Hermes must say that the detailed route course is not available in the Research Guard context.
+- Toll, vignette, Brenner toll, Italian motorway toll, total toll, elevation, pass-height, and border-cost claims are explicitly blocked unless official data is injected.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.14
+```
+
+Expected tests:
+
+```text
+Ran 69 tests
+OK
+```
+
 ## v0.8.0-beta.13
 
 This beta tightens EV route-answer discipline again.

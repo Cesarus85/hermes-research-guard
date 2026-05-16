@@ -1,3 +1,13 @@
+## 2026-05-16 - Google-Routes-Schritte für Streckenverlauf ergänzt
+- **Typ:** feature/fix
+- **Problem:** Anschlussfragen nach dem Streckenverlauf führten wieder zu erfundenen Autobahnen, Grenzdetails, Mautkosten und Segmenten aus Modellwissen.
+- **Änderung:** Google Routes wird jetzt mit `routes.legs.steps.*` abgefragt. Research Guard injiziert echte Navigationsschritte mit Instruktion, Distanz und Dauer, sofern Google sie liefert.
+- **Guardrails:** Hermes darf Autobahnen, Straßen, Anschlussstellen, Zwischenorte und Segmentdistanzen nur aus den Google-Routes-Schritten ableiten. Ohne Schritte muss es sagen, dass der detaillierte Verlauf nicht im Kontext vorliegt.
+- **Maut/Höhenmeter:** Vignettenpreise, Brennermaut, italienische Maut, Gesamtmaut, Passhöhen, Höhenmeter und Grenzkosten werden ausdrücklich blockiert, solange keine offiziellen Daten dafür injiziert wurden.
+- **Follow-ups:** `Streckenverlauf`, `Maut`, `Brenner`, `Autobahn` usw. werden als Routen-Follow-ups erkannt.
+- **Version:** Plugin version raised to `0.8.0-beta.14`.
+- **Tests:** Test suite expanded from 67 to 69 dependency-free tests.
+
 ## 2026-05-16 - EV-Ladeplanungs-Antwortdisziplin nachgeschärft
 - **Typ:** fix
 - **Problem:** Lokale Modelle konnten trotz Kandidatenmodus noch konkrete Ladezeiten, 20-80%-Fenster, Ziel-/Rest-SoC, Start-Ladestopps oder Standort-Komfortdetails erfinden.

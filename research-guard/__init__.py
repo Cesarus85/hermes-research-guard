@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.13"
+__version__ = "0.8.0-beta.14"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -203,6 +203,8 @@ FUEL_PLANNING_RE = re.compile(
 ROUTE_FOLLOWUP_RE = re.compile(
     r"\b(ladestation|ladestationen|ladesäule|ladesaeule|ladepunkt|ladepunkte|ladestopp|ladestopps|"
     r"tankstelle|tankstellen|tankstopp|tankstopps|stopp|stopps|etappe|etappen|"
+    r"streckenverlauf|routeverlauf|routenverlauf|verlauf|autobahn|autobahnen|straße|strasse|straßen|strassen|"
+    r"maut|vignette|brenner|pass|grenze|grenzen|höhenmeter|hoehenmeter|"
     r"akku|batterie|soc|reichweite|verbrauch|laden|tanken|pause|pausen|übernachtung|uebernachtung|"
     r"zurück|zurueck|rückweg|rueckweg|heimweg|return|back|"
     r"kürzer|kuerzer|schneller|langsamer|bevorzugen|empfehlen|welche|welcher|erste|zweite|dritte)\b",
@@ -1169,6 +1171,56 @@ def _route_shape_summary(encoded_polyline: str) -> dict[str, Any]:
     }
 
 
+def _localized_text(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("text") or "").strip()
+    return ""
+
+
+def _clean_route_instruction(value: Any) -> str:
+    text = html.unescape(str(value or ""))
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:240]
+
+
+def _route_steps_summary(route: dict[str, Any], limit: int = 24) -> dict[str, Any]:
+    legs = route.get("legs") if isinstance(route.get("legs"), list) else []
+    steps: list[dict[str, Any]] = []
+    total = 0
+    for leg in legs:
+        if not isinstance(leg, dict):
+            continue
+        for step in leg.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            total += 1
+            if len(steps) >= limit:
+                continue
+            localized = step.get("localizedValues") if isinstance(step.get("localizedValues"), dict) else {}
+            navigation = step.get("navigationInstruction") if isinstance(step.get("navigationInstruction"), dict) else {}
+            distance_meters = step.get("distanceMeters")
+            static_duration_seconds = _parse_google_duration_seconds(step.get("staticDuration"))
+            item = {
+                "index": total,
+                "instruction": _clean_route_instruction(navigation.get("instructions")),
+                "maneuver": navigation.get("maneuver"),
+                "distance_meters": distance_meters,
+                "distance": _localized_text(localized.get("distance")) or _format_distance(distance_meters),
+                "static_duration_seconds": static_duration_seconds,
+                "static_duration": _localized_text(localized.get("staticDuration")) or _format_duration(static_duration_seconds),
+            }
+            if item["instruction"] or item["distance_meters"] is not None:
+                steps.append(item)
+    return {
+        "count": total,
+        "shown": len(steps),
+        "truncated": total > len(steps),
+        "steps": steps,
+        "note": "Google Routes navigation steps. Use only these for highway/road/segment claims; no toll, vignette, fee, border, or elevation data is included.",
+    }
+
+
 def _route_diagnostic_from_response(origin: str, destination: str, route_data: dict[str, Any]) -> dict[str, Any]:
     routes = route_data.get("routes") if isinstance(route_data.get("routes"), list) else []
     if not routes:
@@ -1196,6 +1248,7 @@ def _route_diagnostic_from_response(origin: str, destination: str, route_data: d
         "static_duration_seconds": static_duration_seconds,
         "static_duration": _format_duration(static_duration_seconds),
         "route_shape": _route_shape_summary(encoded_polyline),
+        "route_steps": _route_steps_summary(route),
         "route_count": len(routes),
         "note": "This validates that the configured Google Maps key can call Routes API. It does not validate Places API unless a route-planning prompt also requests stops.",
     }
@@ -1224,7 +1277,10 @@ def _google_routes_compute(origin: str, destination: str, api_key: str) -> dict[
         "X-Goog-FieldMask": (
             "routes.distanceMeters,routes.duration,routes.staticDuration,"
             "routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration,"
-            "routes.legs.staticDuration,routes.legs.startLocation,routes.legs.endLocation"
+            "routes.legs.staticDuration,routes.legs.startLocation,routes.legs.endLocation,"
+            "routes.legs.steps.distanceMeters,routes.legs.steps.staticDuration,"
+            "routes.legs.steps.navigationInstruction.instructions,routes.legs.steps.navigationInstruction.maneuver,"
+            "routes.legs.steps.localizedValues.distance.text,routes.legs.steps.localizedValues.staticDuration.text"
         ),
     }
     return _json_post(
@@ -1378,6 +1434,7 @@ def _route_stop_coverage(stops: list[dict[str, Any]]) -> dict[str, Any]:
 def _route_context_snapshot(payload: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
     route = payload.get("route") if isinstance(payload.get("route"), dict) else {}
     energy_estimate = _route_energy_estimate(route, request.get("preferences") if isinstance(request.get("preferences"), dict) else {})
+    route_steps = payload.get("route_steps") if isinstance(payload.get("route_steps"), dict) else {}
     return {
         "origin": payload.get("origin") or request.get("origin"),
         "destination": payload.get("destination") or request.get("destination"),
@@ -1395,6 +1452,7 @@ def _route_context_snapshot(payload: dict[str, Any], request: dict[str, Any]) ->
         "fuel_stops": (payload.get("fuel_stops") or [])[:12],
         "stop_coverage": payload.get("stop_coverage") or {},
         "energy_estimate": energy_estimate,
+        "route_steps": route_steps,
         "warnings": payload.get("warnings") or [],
         "route_shape": payload.get("route_shape") or {},
         "provider": payload.get("provider"),
@@ -1532,6 +1590,7 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
         },
         "warnings": warnings,
         "route_shape": _route_shape_summary(polyline),
+        "route_steps": _route_steps_summary(route),
         "cached": False,
     }
     return payload
@@ -1545,6 +1604,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
     route_shape = payload.get("route_shape") if isinstance(payload.get("route_shape"), dict) else {}
     stop_coverage = payload.get("stop_coverage") if isinstance(payload.get("stop_coverage"), dict) else {}
     energy_estimate = _route_energy_estimate(route, preferences)
+    route_steps = payload.get("route_steps") if isinstance(payload.get("route_steps"), dict) else {}
     lines = [
         "[Research Guard aktiv]",
         "Für diese aktuelle Nutzerfrage wurde automatisch Routen-Kontext aus Google Maps Platform abgerufen.",
@@ -1577,6 +1637,8 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Wenn du Tankstellen nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte Kraftstoffverfügbarkeit oder Preisangabe.",
         "Wenn Lade-/Tankkandidaten nur an Start, Ziel oder einem einzelnen Routenpunkt gefunden wurden, sage genau das. Ergänze KEINE unterwegs liegenden Stopps aus Trainingswissen.",
         "Erfinde keine Zwischenorte, Autobahnen, Pässe oder Umwege, die nicht im Kontext stehen. Wenn der Nutzer nach dem Verlauf fragt, nutze nur Distanz/Zeit und Route-Shape-Diagnostik oder sage, dass keine Ortsnamen vorliegen.",
+        "Streckenverlauf-Regel: Nenne Autobahnen, Straßen, Anschlussstellen, Grenzübergänge oder Zwischenorte nur, wenn sie unten in `Streckenverlauf aus Google Routes` stehen. Wenn keine Schritte vorhanden sind, sage: `Der detaillierte Streckenverlauf liegt im Research-Guard-Kontext nicht vor.`",
+        "Maut-/Kosten-Regel: Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Höhenmeter, Passhöhen oder Grenzdetails. Google Routes/Places liefern hier keine offiziellen Maut- oder Höhenmeterdaten.",
     ]
     if preferences:
         lines.append(f"Erkannte Nutzerparameter: {json.dumps(preferences, ensure_ascii=False)}")
@@ -1586,6 +1648,18 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         lines.append(f"Hinweise: {' '.join(str(item) for item in payload.get('warnings') or [])}")
     if route_shape:
         lines.append(f"Route-Shape-Diagnostik: {json.dumps(route_shape, ensure_ascii=False)}")
+    if route_steps and route_steps.get("steps"):
+        lines.extend(["", "Streckenverlauf aus Google Routes:"])
+        for step in route_steps.get("steps") or []:
+            distance = f"; Distanz: {step.get('distance')}" if step.get("distance") and step.get("distance") != "unbekannt" else ""
+            duration = f"; Dauer: {step.get('static_duration')}" if step.get("static_duration") and step.get("static_duration") != "unbekannt" else ""
+            instruction = step.get("instruction") or "Navigationsschritt ohne Text"
+            lines.append(f"{step.get('index')}. {instruction}{distance}{duration}")
+        if route_steps.get("truncated"):
+            lines.append(f"Hinweis: Google lieferte {route_steps.get('count')} Schritte; nur die ersten {route_steps.get('shown')} sind im Kontext.")
+        lines.append("Diese Schritte enthalten keine offiziellen Maut-, Vignetten-, Höhenmeter- oder Grenzkosten.")
+    else:
+        lines.append("Streckenverlauf aus Google Routes: Keine detaillierten Navigationsschritte im Kontext. Erfinde keine Autobahnen, Straßen, Mautkosten, Passhöhen oder Grenzdetails.")
     if stop_coverage:
         lines.append(f"Stopp-Abdeckung: {json.dumps(stop_coverage, ensure_ascii=False)}")
     if chargers:
@@ -1667,6 +1741,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
     route_shape = snapshot.get("route_shape") if isinstance(snapshot.get("route_shape"), dict) else {}
     stop_coverage = snapshot.get("stop_coverage") if isinstance(snapshot.get("stop_coverage"), dict) else {}
     energy_estimate = snapshot.get("energy_estimate") if isinstance(snapshot.get("energy_estimate"), dict) else {}
+    route_steps = snapshot.get("route_steps") if isinstance(snapshot.get("route_steps"), dict) else {}
     lines = [
         "[Research Guard: Routen-Follow-up]",
         "Der Nutzer stellt eine Anschlussfrage zum zuletzt von Research Guard bereitgestellten Routen-Kontext.",
@@ -1679,6 +1754,8 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Nenne keine 20-80%-Fenster, Minuten-Ladezeiten, Ziel-SoC oder Rest-SoC, wenn diese nicht ausdrücklich im gespeicherten Kontext stehen.",
         "Startbereich-Ladepunkte sind bei vollem Startakku nur Vorab-Optionen, nicht automatisch der erste Routenstopp.",
         "Erfinde keine Aussagen zu Raststätten, Kaffee, WC, Shops, Zuverlässigkeit, Preisen, Betreiberqualität oder Tesla-Fremdmarken-Freigaben.",
+        "Bei Fragen zum Streckenverlauf: Nutze nur gespeicherte Google-Routes-Schritte. Wenn keine Schritte gespeichert sind, sage, dass der detaillierte Streckenverlauf im Research-Guard-Kontext nicht vorliegt.",
+        "Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Höhenmeter, Passhöhen, Grenzdetails, Autobahnen oder Anschlussstellen außerhalb der gespeicherten Google-Routes-Schritte.",
         f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
         f"Modell: {model or 'unknown'}",
         f"Ursprüngliche Route: {snapshot.get('origin') or 'unbekannt'} -> {snapshot.get('destination') or 'unbekannt'}",
@@ -1692,6 +1769,18 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         lines.append(f"Hinweise aus der letzten Route: {' '.join(str(item) for item in snapshot.get('warnings') or [])}")
     if route_shape:
         lines.append(f"Route-Shape-Diagnostik aus der letzten Route: {json.dumps(route_shape, ensure_ascii=False)}")
+    if route_steps and route_steps.get("steps"):
+        lines.extend(["", "Gespeicherter Streckenverlauf aus Google Routes:"])
+        for step in route_steps.get("steps") or []:
+            distance = f"; Distanz: {step.get('distance')}" if step.get("distance") and step.get("distance") != "unbekannt" else ""
+            duration = f"; Dauer: {step.get('static_duration')}" if step.get("static_duration") and step.get("static_duration") != "unbekannt" else ""
+            instruction = step.get("instruction") or "Navigationsschritt ohne Text"
+            lines.append(f"{step.get('index')}. {instruction}{distance}{duration}")
+        if route_steps.get("truncated"):
+            lines.append(f"Hinweis: Google lieferte {route_steps.get('count')} Schritte; nur die ersten {route_steps.get('shown')} sind gespeichert.")
+        lines.append("Diese Schritte enthalten keine offiziellen Maut-, Vignetten-, Höhenmeter- oder Grenzkosten.")
+    else:
+        lines.append("Gespeicherter Streckenverlauf aus Google Routes: Keine detaillierten Navigationsschritte gespeichert. Erfinde keine Autobahnen, Straßen, Mautkosten, Passhöhen oder Grenzdetails.")
     if stop_coverage:
         lines.append(f"Stopp-Abdeckung aus der letzten Route: {json.dumps(stop_coverage, ensure_ascii=False)}")
     if chargers:
