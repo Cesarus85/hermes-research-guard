@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.8.0-beta.8
+
+This beta adds route follow-up handling.
+
+### New
+
+- Research Guard now stores a small in-memory snapshot of the last route result.
+- Route follow-ups such as `Welche Ladestation würdest du bevorzugen?` reuse the previous route context without a fresh Google request.
+- Return/reverse or explicit recalculation follow-ups such as `Und zurück?` can trigger a fresh Google Routes/Places request.
+- Status diagnostics now distinguish `route-followup-context` from `route-planning-followup-refresh`.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.8
+```
+
+Expected tests:
+
+```text
+Ran 58 tests
+OK
+```
+
 ## v0.8.0-beta.7
 
 This beta makes route planning more flexible.

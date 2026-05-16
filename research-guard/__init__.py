@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.7"
+__version__ = "0.8.0-beta.8"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -198,6 +198,19 @@ EV_PLANNING_RE = re.compile(
 )
 FUEL_PLANNING_RE = re.compile(
     r"\b(tankplanung|tankstopp|tankstopps|tanken|tankstelle|tankstellen|fuel|gas\s*station|petrol\s*station)\b",
+    re.IGNORECASE,
+)
+ROUTE_FOLLOWUP_RE = re.compile(
+    r"\b(ladestation|ladestationen|ladesäule|ladesaeule|ladepunkt|ladepunkte|ladestopp|ladestopps|"
+    r"tankstelle|tankstellen|tankstopp|tankstopps|stopp|stopps|etappe|etappen|"
+    r"akku|batterie|soc|reichweite|verbrauch|laden|tanken|pause|pausen|übernachtung|uebernachtung|"
+    r"zurück|zurueck|rückweg|rueckweg|heimweg|return|back|"
+    r"kürzer|kuerzer|schneller|langsamer|bevorzugen|empfehlen|welche|welcher|erste|zweite|dritte)\b",
+    re.IGNORECASE,
+)
+ROUTE_REFRESH_RE = re.compile(
+    r"\b(neu\s*berechnen|aktualisier(?:e|en)?|refresh|nochmal|noch\s+mal|erneut|"
+    r"zurück|zurueck|rückweg|rueckweg|heimweg|return\s+trip|way\s+back)\b",
     re.IGNORECASE,
 )
 ROUTE_FROM_TO_PATTERNS = (
@@ -726,6 +739,10 @@ def _reason_summary(decision: dict[str, Any], category: str, searched: bool) -> 
     if category == "researched_and_injected":
         if reason == "route-planning":
             return "Research Guard lief als Routen-/Ladeplanungsquelle und hat Google-Maps-Kontext ergänzt."
+        if reason == "route-planning-followup-refresh":
+            return "Research Guard hat wegen einer Routen-Anschlussfrage eine frische Google-Maps-Routenabfrage ausgeführt."
+        if reason == "route-followup-context":
+            return "Research Guard hat den letzten Routen-Kontext für eine Anschlussfrage erneut bereitgestellt, ohne Google neu abzufragen."
         if reason == "explicit":
             return "Research Guard lief, weil die Suche manuell erzwungen wurde."
         if reason in {"factual-risk", "general-knowledge", "current-fact", "current-facts", "aggressive-question"}:
@@ -796,6 +813,10 @@ def _diagnostic_explanation(decision: dict[str, Any], category: str, searched: b
     action = decision.get("action")
     query = decision.get("query") or "the prompt"
     if category == "researched_and_injected":
+        if decision.get("reason") == "route-followup-context":
+            return f'Research Guard reused the previous route context for the follow-up "{query}" without a fresh Google request.'
+        if decision.get("reason") == "route-planning-followup-refresh":
+            return f'Research Guard refreshed Google Maps route context for the follow-up "{query}" before the model answered.'
         if decision.get("reason") == "route-planning":
             return f'Research Guard fetched Google Maps route context for "{query}" and injected it before the model answered.'
         return f'Research Guard searched for "{query}" and injected source context before the model answered.'
@@ -908,6 +929,13 @@ def _last_research_decision() -> dict[str, Any] | None:
     return None
 
 
+def _last_route_decision() -> dict[str, Any] | None:
+    for decision in reversed(DECISIONS):
+        if decision.get("route_context") or decision.get("reason") == "route-planning":
+            return decision
+    return None
+
+
 def _source_summaries(results: list[dict[str, Any]], limit: int = 5) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     for item in results[:limit]:
@@ -958,6 +986,24 @@ def _is_route_planning_prompt(message: str) -> bool:
     has_from_to = bool(any(pattern.search(text) for pattern in ROUTE_FROM_TO_PATTERNS))
     has_ev_or_fuel = bool(EV_OR_FUEL_RE.search(text))
     return has_route_term and (has_from_to or has_ev_or_fuel)
+
+
+def _is_route_followup_prompt(message: str) -> bool:
+    text = _clean_message_for_research(message)
+    if not text or len(text) > 260:
+        return False
+    if NO_RESEARCH_PREFIX_RE.match(text) or SLASH_COMMAND_RE.match(text) or _is_status_request(text) or _is_source_followup(text):
+        return False
+    if _is_route_planning_prompt(text):
+        return False
+    if not _last_route_decision():
+        return False
+    return bool(ROUTE_FOLLOWUP_RE.search(text))
+
+
+def _route_followup_should_refresh(message: str) -> bool:
+    text = _clean_message_for_research(message)
+    return bool(ROUTE_REFRESH_RE.search(text))
 
 
 def _trim_route_place(value: str) -> str:
@@ -1235,6 +1281,44 @@ def _dedupe_chargers(chargers: list[dict[str, Any]], limit: int) -> list[dict[st
     return deduped
 
 
+def _route_context_snapshot(payload: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
+    route = payload.get("route") if isinstance(payload.get("route"), dict) else {}
+    return {
+        "origin": payload.get("origin") or request.get("origin"),
+        "destination": payload.get("destination") or request.get("destination"),
+        "route": {
+            "distance_meters": route.get("distance_meters"),
+            "duration_seconds": route.get("duration_seconds"),
+            "static_duration_seconds": route.get("static_duration_seconds"),
+        },
+        "request": {
+            "needs_ev_chargers": bool(request.get("needs_ev_chargers")),
+            "needs_fuel_stops": bool(request.get("needs_fuel_stops")),
+            "preferences": request.get("preferences") or {},
+        },
+        "chargers": (payload.get("chargers") or [])[:12],
+        "fuel_stops": (payload.get("fuel_stops") or [])[:12],
+        "warnings": payload.get("warnings") or [],
+        "provider": payload.get("provider"),
+    }
+
+
+def _route_request_from_snapshot(snapshot: dict[str, Any], *, reverse: bool = False) -> dict[str, Any]:
+    request = snapshot.get("request") if isinstance(snapshot.get("request"), dict) else {}
+    origin = snapshot.get("origin")
+    destination = snapshot.get("destination")
+    if reverse:
+        origin, destination = destination, origin
+    return {
+        "origin": origin or "",
+        "destination": destination or "",
+        "needs_ev_chargers": bool(request.get("needs_ev_chargers")),
+        "needs_fuel_stops": bool(request.get("needs_fuel_stops")),
+        "preferences": request.get("preferences") if isinstance(request.get("preferences"), dict) else {},
+        "prompt": "route follow-up refresh",
+    }
+
+
 def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bool = True, needs_fuel_stops: bool = False) -> dict[str, Any]:
     api_key = _route_api_key()
     route_data = _google_routes_compute(origin, destination, api_key)
@@ -1384,10 +1468,58 @@ def _format_route_unavailable_context(request: dict[str, Any], reason: str) -> s
     return "\n".join(lines)
 
 
-def _route_planning_response(user_message: str, model: str | None, provider: str | None, query_debug: dict[str, Any]) -> dict[str, str] | None:
-    if not _is_route_planning_prompt(user_message) or not _route_planning_enabled():
-        return None
-    request = _extract_route_request(user_message)
+def _format_route_followup_context(decision: dict[str, Any], user_message: str, model: str | None) -> str:
+    snapshot = decision.get("route_context") if isinstance(decision.get("route_context"), dict) else {}
+    route = snapshot.get("route") if isinstance(snapshot.get("route"), dict) else {}
+    request = snapshot.get("request") if isinstance(snapshot.get("request"), dict) else {}
+    preferences = request.get("preferences") if isinstance(request.get("preferences"), dict) else {}
+    chargers = snapshot.get("chargers") if isinstance(snapshot.get("chargers"), list) else []
+    fuel_stops = snapshot.get("fuel_stops") if isinstance(snapshot.get("fuel_stops"), list) else []
+    lines = [
+        "[Research Guard: Routen-Follow-up]",
+        "Der Nutzer stellt eine Anschlussfrage zum zuletzt von Research Guard bereitgestellten Routen-Kontext.",
+        "Für diese Anschlussfrage wurde KEINE neue Google-Abfrage ausgeführt. Nutze nur den folgenden letzten Routen-Kontext und den sichtbaren Gesprächskontext.",
+        "Wenn die Anschlussfrage eine geänderte Route, aktuelle Live-Verfügbarkeit, neue Stopps oder neue Verkehrsdaten verlangt, sage klar, dass dafür eine neue Routenabfrage nötig ist.",
+        f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
+        f"Modell: {model or 'unknown'}",
+        f"Ursprüngliche Route: {snapshot.get('origin') or 'unbekannt'} -> {snapshot.get('destination') or 'unbekannt'}",
+        f"Route laut letztem Google-Kontext: {_format_distance(route.get('distance_meters'))}; Fahrtzeit mit Verkehr: {_format_duration(route.get('duration_seconds'))}; ohne/typisch: {_format_duration(route.get('static_duration_seconds'))}.",
+    ]
+    if preferences:
+        lines.append(f"Erkannte Nutzerparameter aus der letzten Route: {json.dumps(preferences, ensure_ascii=False)}")
+    if snapshot.get("warnings"):
+        lines.append(f"Hinweise aus der letzten Route: {' '.join(str(item) for item in snapshot.get('warnings') or [])}")
+    if chargers:
+        lines.extend(["", "Letzte Ladepunkt-Kandidaten:"])
+        for idx, charger in enumerate(chargers, 1):
+            connector_text = []
+            for connector in charger.get("connectors") or []:
+                pieces = [str(connector.get("type") or "connector")]
+                if connector.get("max_charge_rate_kw") is not None:
+                    pieces.append(f"bis {connector.get('max_charge_rate_kw')} kW")
+                if connector.get("available_count") is not None or connector.get("count") is not None:
+                    pieces.append(f"frei/gesamt {connector.get('available_count', '?')}/{connector.get('count', '?')}")
+                connector_text.append(" ".join(pieces))
+            details = f"; Anschlüsse: {'; '.join(connector_text)}" if connector_text else ""
+            url = f"; Maps: {charger.get('google_maps_uri')}" if charger.get("google_maps_uri") else ""
+            rating = f"; Rating: {charger.get('rating')}" if charger.get("rating") is not None else ""
+            lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{url}")
+    if fuel_stops:
+        lines.extend(["", "Letzte Tankstopp-Kandidaten:"])
+        for idx, stop in enumerate(fuel_stops, 1):
+            url = f"; Maps: {stop.get('google_maps_uri')}" if stop.get("google_maps_uri") else ""
+            rating = f"; Rating: {stop.get('rating')}" if stop.get("rating") is not None else ""
+            lines.append(f"{idx}. {stop.get('name')}; {stop.get('address') or 'Adresse unbekannt'}{rating}{url}")
+    lines.extend([
+        "",
+        "Antwortpflicht: Antworte als Anschluss an die bestehende Route. Behaupte keine frischen Google-Daten. Wenn du Kandidaten bewertest, nenne sie als Kandidaten, nicht als garantierte Stopps.",
+        "Füge am Ende keine normale `Quellen (Research Guard):`-Zeile hinzu; wenn Quellenhinweis nötig ist, schreibe kurz `Basis: vorheriger Research-Guard-Routen-Kontext (Google Maps Platform).`",
+        "[/Research Guard: Routen-Follow-up]",
+    ])
+    return "\n".join(lines)
+
+
+def _route_planning_context_response(request: dict[str, Any], user_message: str, model: str | None, query_debug: dict[str, Any], reason: str = "route-planning") -> dict[str, str]:
     if not request.get("origin") or not request.get("destination"):
         _record_decision(
             "skipped",
@@ -1396,7 +1528,7 @@ def _route_planning_response(user_message: str, model: str | None, provider: str
             provider="google-maps",
             query_debug=query_debug,
             route_planning={"origin": request.get("origin"), "destination": request.get("destination")},
-            prompt=request.get("prompt", "")[:180],
+            prompt=request.get("prompt") or user_message[:180],
         )
         return {"context": _format_route_unavailable_context(request, "Start und Ziel konnten nicht sicher erkannt werden.")}
     if not _route_api_key():
@@ -1430,9 +1562,10 @@ def _route_planning_response(user_message: str, model: str | None, provider: str
         )
         return {"context": _format_route_unavailable_context(request, f"Google Maps API Fehler: {exc}")}
     route = payload.get("route") if isinstance(payload.get("route"), dict) else {}
+    snapshot = _route_context_snapshot(payload, request)
     _record_decision(
         "injected",
-        "route-planning",
+        reason,
         model=model,
         provider=payload.get("provider"),
         query=f"{request.get('origin')} -> {request.get('destination')}",
@@ -1446,7 +1579,9 @@ def _route_planning_response(user_message: str, model: str | None, provider: str
             "charger_candidate_count": len(payload.get("chargers") or []),
             "fuel_stop_candidate_count": len(payload.get("fuel_stops") or []),
             "warnings": payload.get("warnings") or [],
+            "refresh": reason == "route-planning-followup-refresh",
         },
+        route_context=snapshot,
         sources=[
             {
                 "title": "Google Maps Platform Routes API",
@@ -1466,6 +1601,39 @@ def _route_planning_response(user_message: str, model: str | None, provider: str
         ],
     )
     return {"context": _format_route_context(payload, request, model)}
+
+
+def _route_planning_response(user_message: str, model: str | None, provider: str | None, query_debug: dict[str, Any]) -> dict[str, str] | None:
+    if not _is_route_planning_prompt(user_message) or not _route_planning_enabled():
+        return None
+    request = _extract_route_request(user_message)
+    return _route_planning_context_response(request, user_message, model, query_debug)
+
+
+def _route_followup_response(user_message: str, model: str | None, provider: str | None, query_debug: dict[str, Any]) -> dict[str, str] | None:
+    del provider
+    if not _route_planning_enabled() or not _is_route_followup_prompt(user_message):
+        return None
+    decision = _last_route_decision()
+    if not decision:
+        return None
+    snapshot = decision.get("route_context") if isinstance(decision.get("route_context"), dict) else {}
+    if _route_followup_should_refresh(user_message):
+        reverse = bool(re.search(r"\b(zurück|zurueck|rückweg|rueckweg|heimweg|return|back)\b", _clean_message_for_research(user_message), flags=re.IGNORECASE))
+        request = _route_request_from_snapshot(snapshot, reverse=reverse)
+        return _route_planning_context_response(request, user_message, model, query_debug, "route-planning-followup-refresh")
+    _record_decision(
+        "injected",
+        "route-followup-context",
+        model=model,
+        provider="research-guard-memory",
+        query=str(decision.get("query") or ""),
+        query_debug=query_debug,
+        route_planning=decision.get("route_planning"),
+        route_context=snapshot,
+        prompt=user_message[:180],
+    )
+    return {"context": _format_route_followup_context(decision, user_message, model)}
 
 
 def _normalize_hostname(value: str) -> str:
@@ -2850,11 +3018,12 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
         return {"context": _format_status_request_context()}
     if reason == "source-followup":
         return {"context": _format_source_followup_context()}
-    if reason == "context-followup":
-        return {"context": _format_context_followup_context()}
     route_trigger = reason != "opt-out" and _is_route_planning_prompt(user_message) and _route_planning_enabled()
-    gate_should_research = should or route_trigger
-    gate_reason = "route-planning" if route_trigger else reason
+    route_followup_trigger = reason != "opt-out" and _is_route_followup_prompt(user_message) and _route_planning_enabled()
+    if reason == "context-followup" and not route_followup_trigger:
+        return {"context": _format_context_followup_context()}
+    gate_should_research = should or route_trigger or route_followup_trigger
+    gate_reason = "route-planning" if route_trigger else "route-followup-context" if route_followup_trigger else reason
     if _should_skip_for_model_gate(model, provider, gate_should_research, gate_reason):
         _record_decision(
             "skipped",
@@ -2873,6 +3042,9 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
     route_response = _route_planning_response(user_message, model, provider, query_debug)
     if route_response is not None:
         return route_response
+    route_followup_response = _route_followup_response(user_message, model, provider, query_debug)
+    if route_followup_response is not None:
+        return route_followup_response
     if not should:
         _record_decision("skipped", reason, model=model, provider=provider, query_debug=query_debug, prompt=current_prompt[:180])
         return _no_research_response(reason, current_prompt, model, provider)

@@ -1,3 +1,12 @@
+## 2026-05-16 - Routen-Follow-ups ergänzt
+- **Typ:** feature
+- **Änderung:** Research Guard speichert jetzt einen kleinen strukturierten Snapshot des letzten Routen-Kontexts im Statuspuffer.
+- **Follow-ups:** Anschlussfragen wie `Welche Ladestation würdest du bevorzugen?` nutzen den letzten Routen-Kontext ohne neue Google-Abfrage.
+- **Refresh:** Rückweg-/Return- und explizite Neuberechnungsfragen wie `Und zurück?` oder `Berechne die Route nochmal neu` können eine frische Google-Routenabfrage auslösen.
+- **Diagnostik:** Status unterscheidet `route-followup-context` und `route-planning-followup-refresh`.
+- **Version:** Plugin version raised to `0.8.0-beta.8`.
+- **Tests:** Test suite expanded from 56 to 58 dependency-free tests.
+
 ## 2026-05-16 - Route Planning ohne Lade-/Tankangabe aktiviert
 - **Typ:** feature
 - **Änderung:** Klare Routenfragen wie `Plane die Route von A nach B` triggern jetzt Route Planning auch ohne Lade- oder Tankstopp-Angabe.

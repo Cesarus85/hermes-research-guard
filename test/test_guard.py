@@ -1168,6 +1168,108 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(guard.DECISIONS[-1]["route_planning"]["charger_candidate_count"], 0)
         self.assertEqual(guard.DECISIONS[-1]["route_planning"]["fuel_stop_candidate_count"], 0)
 
+    def test_route_followup_reuses_previous_route_context_without_google(self):
+        guard.DECISIONS.clear()
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        original_payload = guard._route_planning_payload
+        try:
+            os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = "true"
+            guard._record_decision(
+                "injected",
+                "route-planning",
+                provider="google-maps",
+                query="Forchheim -> Riva del Garda",
+                route_planning={"origin": "Forchheim", "destination": "Riva del Garda", "charger_candidate_count": 1},
+                route_context={
+                    "origin": "Forchheim",
+                    "destination": "Riva del Garda",
+                    "route": {"distance_meters": 620000, "duration_seconds": 25200, "static_duration_seconds": 24000},
+                    "request": {"needs_ev_chargers": True, "needs_fuel_stops": False, "preferences": {"battery_kwh": 77}},
+                    "chargers": [{"name": "Example Fast Charge", "address": "A9 Beispiel", "connectors": [], "google_maps_uri": "https://maps.example/1"}],
+                    "fuel_stops": [],
+                    "warnings": [],
+                    "provider": "google-maps",
+                },
+            )
+            guard._route_planning_payload = lambda *args, **kwargs: self.fail("follow-up should not call Google")
+
+            result = guard.pre_llm_research_guard(
+                "s1",
+                "Welche Ladestation würdest du bevorzugen?",
+                "qwen3",
+                "ollama",
+            )
+        finally:
+            guard._route_planning_payload = original_payload
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("Research Guard: Routen-Follow-up", result["context"])
+        self.assertIn("Example Fast Charge", result["context"])
+        self.assertEqual(guard.DECISIONS[-1]["reason"], "route-followup-context")
+
+    def test_route_followup_refreshes_google_for_return_trip(self):
+        guard.DECISIONS.clear()
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        original_payload = guard._route_planning_payload
+        calls = []
+        try:
+            os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = "true"
+            os.environ["GOOGLE_MAPS_API_KEY"] = "test-key"
+            guard._record_decision(
+                "injected",
+                "route-planning",
+                provider="google-maps",
+                query="Forchheim -> Riva del Garda",
+                route_planning={"origin": "Forchheim", "destination": "Riva del Garda"},
+                route_context={
+                    "origin": "Forchheim",
+                    "destination": "Riva del Garda",
+                    "route": {"distance_meters": 620000, "duration_seconds": 25200, "static_duration_seconds": 24000},
+                    "request": {"needs_ev_chargers": True, "needs_fuel_stops": False, "preferences": {"battery_kwh": 77}},
+                    "chargers": [],
+                    "fuel_stops": [],
+                    "warnings": [],
+                    "provider": "google-maps",
+                },
+            )
+
+            def fake_payload(origin, destination, needs_ev=True, needs_fuel=False):
+                calls.append((origin, destination, needs_ev, needs_fuel))
+                return {
+                    "success": True,
+                    "provider": "google-maps",
+                    "origin": origin,
+                    "destination": destination,
+                    "route": {"distance_meters": 625000, "duration_seconds": 26000, "static_duration_seconds": 24500},
+                    "chargers": [],
+                    "fuel_stops": [],
+                    "warnings": [],
+                    "cached": False,
+                }
+
+            guard._route_planning_payload = fake_payload
+            result = guard.pre_llm_research_guard("s1", "Und zurück?", "qwen3", "ollama")
+        finally:
+            guard._route_planning_payload = original_payload
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+            if old_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_key
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(calls, [("Riva del Garda", "Forchheim", True, False)])
+        self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning-followup-refresh")
+        self.assertTrue(guard.DECISIONS[-1]["route_planning"]["refresh"])
+
     def test_route_planning_status_reports_config(self):
         old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
         old_key = os.environ.get("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY")

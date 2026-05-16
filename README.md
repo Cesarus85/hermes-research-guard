@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.7`
+**Beta release:** `v0.8.0-beta.8`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -25,6 +25,7 @@ What is considered beta-stable:
 - weak-source demotion for aggregators, forums/social pages, scraper-like results, paywall/snippet-only pages, listicles, coupons, duplicate URLs, and repeated same-domain evidence
 - structured deep fetch for tracklists, tables, release notes, prices, benchmarks, population facts, and other detail-heavy prompts
 - optional Google Maps route context for rough route prompts, with EV charging-station and fuel-stop candidates only when requested or implied
+- route follow-up handling that reuses the last route context or refreshes Google for return/recalculate requests
 - context follow-up handling for questions such as "Where did you get that from?" or "What do you think about it?"
 - `research_guard_status` and `research_guard_diagnostics` diagnostics
 - `research_guard_config` for persistent plugin configuration without editing service environment variables
@@ -81,7 +82,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.7
+version: 0.8.0-beta.8
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -118,7 +119,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.7
+version: 0.8.0-beta.8
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -295,6 +296,32 @@ The feature currently uses:
 It intentionally injects guardrails into Hermes: the model is told to treat the result as a rough route and stop-candidate basis, not as a guaranteed EV or fuel planner. It must not invent exact state-of-charge curves, charger availability, fuel availability, prices, or charge/refuel times unless the user supplied enough vehicle data and the source data actually supports it.
 
 Route/Places payloads are not written to Research Guard's persistent web-search cache. This keeps the Hermes plugin conservative with Google Maps Platform caching and storage policies. Cost control comes from explicit opt-in, per-request timeouts, a small number of sampled route points, capped EV charger candidates, capped fuel-stop candidates, and opt-in-only fuel price fields.
+
+### Route Follow-Ups
+
+Research Guard keeps a small in-memory snapshot of the last route result. Follow-ups such as these reuse that snapshot without a fresh Google request:
+
+```text
+Welche Ladestation würdest du bevorzugen?
+```
+
+```text
+Kannst du die zweite Etappe kürzer machen?
+```
+
+```text
+Was ändert sich, wenn ich nur bis 10% Akku runterfahren will?
+```
+
+Follow-ups that clearly need new route data can refresh Google Maps. Currently this includes return/reverse or explicit recalculation requests such as:
+
+```text
+Und zurück?
+```
+
+```text
+Berechne die Route nochmal neu.
+```
 
 ## Source Quality
 
