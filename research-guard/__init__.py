@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.9"
+__version__ = "0.8.0-beta.10"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1335,6 +1335,38 @@ def _dedupe_chargers(chargers: list[dict[str, Any]], limit: int) -> list[dict[st
     return deduped
 
 
+def _balanced_route_stop_candidates(stops: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for stop in _dedupe_chargers(stops, max(limit * 4, limit)):
+        try:
+            sample_index = int(stop.get("sample_index") or 0)
+        except Exception:
+            sample_index = 0
+        groups.setdefault(sample_index, []).append(stop)
+    balanced: list[dict[str, Any]] = []
+    sample_indexes = sorted(groups)
+    while len(balanced) < limit and any(groups.get(index) for index in sample_indexes):
+        for index in sample_indexes:
+            if groups.get(index):
+                balanced.append(groups[index].pop(0))
+                if len(balanced) >= limit:
+                    break
+    return balanced
+
+
+def _route_stop_coverage(stops: list[dict[str, Any]]) -> dict[str, Any]:
+    sample_indexes = sorted({
+        int(stop.get("sample_index") or 0)
+        for stop in stops
+        if stop.get("sample_index") is not None
+    })
+    return {
+        "count": len(stops),
+        "sample_indexes": sample_indexes,
+        "sample_coverage": len(sample_indexes),
+    }
+
+
 def _route_context_snapshot(payload: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
     route = payload.get("route") if isinstance(payload.get("route"), dict) else {}
     return {
@@ -1352,6 +1384,7 @@ def _route_context_snapshot(payload: dict[str, Any], request: dict[str, Any]) ->
         },
         "chargers": (payload.get("chargers") or [])[:12],
         "fuel_stops": (payload.get("fuel_stops") or [])[:12],
+        "stop_coverage": payload.get("stop_coverage") or {},
         "warnings": payload.get("warnings") or [],
         "route_shape": payload.get("route_shape") or {},
         "provider": payload.get("provider"),
@@ -1409,6 +1442,14 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
                     fuel_stops.extend(_normalize_fuel_stop(place, idx) for place in places if isinstance(place, dict))
                 except Exception as exc:
                     warnings.append(f"Fuel station lookup near route sample {idx} failed: {exc}")
+    balanced_chargers = _balanced_route_stop_candidates(chargers, charger_limit)
+    balanced_fuel_stops = _balanced_route_stop_candidates(fuel_stops, fuel_limit)
+    charger_coverage = _route_stop_coverage(balanced_chargers)
+    fuel_coverage = _route_stop_coverage(balanced_fuel_stops)
+    if needs_ev_chargers and charger_coverage["count"] > 1 and charger_coverage["sample_coverage"] <= 1:
+        warnings.append("All EV charger candidates came from one sampled route area. Do not invent along-route charging stops from training knowledge.")
+    if needs_fuel_stops and fuel_coverage["count"] > 1 and fuel_coverage["sample_coverage"] <= 1:
+        warnings.append("All fuel-stop candidates came from one sampled route area. Do not invent along-route fuel stops from training knowledge.")
     payload = {
         "success": True,
         "provider": "google-maps",
@@ -1419,8 +1460,12 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
             "duration_seconds": _parse_google_duration_seconds(route.get("duration")),
             "static_duration_seconds": _parse_google_duration_seconds(route.get("staticDuration")),
         },
-        "chargers": _dedupe_chargers(chargers, charger_limit),
-        "fuel_stops": _dedupe_chargers(fuel_stops, fuel_limit),
+        "chargers": balanced_chargers,
+        "fuel_stops": balanced_fuel_stops,
+        "stop_coverage": {
+            "chargers": charger_coverage,
+            "fuel_stops": fuel_coverage,
+        },
         "warnings": warnings,
         "route_shape": _route_shape_summary(polyline),
         "cached": False,
@@ -1434,6 +1479,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
     fuel_stops = payload.get("fuel_stops") if isinstance(payload.get("fuel_stops"), list) else []
     preferences = request.get("preferences") if isinstance(request.get("preferences"), dict) else {}
     route_shape = payload.get("route_shape") if isinstance(payload.get("route_shape"), dict) else {}
+    stop_coverage = payload.get("stop_coverage") if isinstance(payload.get("stop_coverage"), dict) else {}
     lines = [
         "[Research Guard aktiv]",
         "Für diese aktuelle Nutzerfrage wurde automatisch Routen-Kontext aus Google Maps Platform abgerufen.",
@@ -1453,6 +1499,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Wenn Akku, Verbrauch, Start-SoC, gewünschter Ziel-SoC, Ladeleistung, Kraftstoffart oder Reichweite fehlen, nenne realistische Annahmen ausdrücklich oder frage kurz nach.",
         "Wenn du Ladepunkte nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte funktionierende Stopps.",
         "Wenn du Tankstellen nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte Kraftstoffverfügbarkeit oder Preisangabe.",
+        "Wenn Lade-/Tankkandidaten nur an Start, Ziel oder einem einzelnen Routenpunkt gefunden wurden, sage genau das. Ergänze KEINE unterwegs liegenden Stopps aus Trainingswissen.",
         "Erfinde keine Zwischenorte, Autobahnen, Pässe oder Umwege, die nicht im Kontext stehen. Wenn der Nutzer nach dem Verlauf fragt, nutze nur Distanz/Zeit und Route-Shape-Diagnostik oder sage, dass keine Ortsnamen vorliegen.",
     ]
     if preferences:
@@ -1461,6 +1508,8 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         lines.append(f"Hinweise: {' '.join(str(item) for item in payload.get('warnings') or [])}")
     if route_shape:
         lines.append(f"Route-Shape-Diagnostik: {json.dumps(route_shape, ensure_ascii=False)}")
+    if stop_coverage:
+        lines.append(f"Stopp-Abdeckung: {json.dumps(stop_coverage, ensure_ascii=False)}")
     if chargers:
         lines.extend(["", "Ladepunkt-Kandidaten aus Places:"])
         for idx, charger in enumerate(chargers, 1):
@@ -1475,7 +1524,8 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
             details = f"; Anschlüsse: {'; '.join(connector_text)}" if connector_text else ""
             url = f"; Maps: {charger.get('google_maps_uri')}" if charger.get("google_maps_uri") else ""
             rating = f"; Rating: {charger.get('rating')}" if charger.get("rating") is not None else ""
-            lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{url}")
+            sample = f"; Routenpunkt: {charger.get('sample_index')}" if charger.get("sample_index") is not None else ""
+            lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{sample}{url}")
     elif request.get("needs_ev_chargers"):
         lines.extend([
             "",
@@ -1498,7 +1548,8 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
             details = f"; Preise: {'; '.join(price_text)}" if price_text else ""
             url = f"; Maps: {stop.get('google_maps_uri')}" if stop.get("google_maps_uri") else ""
             rating = f"; Rating: {stop.get('rating')}" if stop.get("rating") is not None else ""
-            lines.append(f"{idx}. {stop.get('name')}; {stop.get('address') or 'Adresse unbekannt'}{rating}{details}{url}")
+            sample = f"; Routenpunkt: {stop.get('sample_index')}" if stop.get("sample_index") is not None else ""
+            lines.append(f"{idx}. {stop.get('name')}; {stop.get('address') or 'Adresse unbekannt'}{rating}{details}{sample}{url}")
     elif request.get("needs_fuel_stops"):
         lines.extend([
             "",
@@ -1536,6 +1587,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
     chargers = snapshot.get("chargers") if isinstance(snapshot.get("chargers"), list) else []
     fuel_stops = snapshot.get("fuel_stops") if isinstance(snapshot.get("fuel_stops"), list) else []
     route_shape = snapshot.get("route_shape") if isinstance(snapshot.get("route_shape"), dict) else {}
+    stop_coverage = snapshot.get("stop_coverage") if isinstance(snapshot.get("stop_coverage"), dict) else {}
     lines = [
         "[Research Guard: Routen-Follow-up]",
         "Der Nutzer stellt eine Anschlussfrage zum zuletzt von Research Guard bereitgestellten Routen-Kontext.",
@@ -1552,6 +1604,8 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         lines.append(f"Hinweise aus der letzten Route: {' '.join(str(item) for item in snapshot.get('warnings') or [])}")
     if route_shape:
         lines.append(f"Route-Shape-Diagnostik aus der letzten Route: {json.dumps(route_shape, ensure_ascii=False)}")
+    if stop_coverage:
+        lines.append(f"Stopp-Abdeckung aus der letzten Route: {json.dumps(stop_coverage, ensure_ascii=False)}")
     if chargers:
         lines.extend(["", "Letzte Ladepunkt-Kandidaten:"])
         for idx, charger in enumerate(chargers, 1):
@@ -1566,13 +1620,15 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
             details = f"; Anschlüsse: {'; '.join(connector_text)}" if connector_text else ""
             url = f"; Maps: {charger.get('google_maps_uri')}" if charger.get("google_maps_uri") else ""
             rating = f"; Rating: {charger.get('rating')}" if charger.get("rating") is not None else ""
-            lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{url}")
+            sample = f"; Routenpunkt: {charger.get('sample_index')}" if charger.get("sample_index") is not None else ""
+            lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{sample}{url}")
     if fuel_stops:
         lines.extend(["", "Letzte Tankstopp-Kandidaten:"])
         for idx, stop in enumerate(fuel_stops, 1):
             url = f"; Maps: {stop.get('google_maps_uri')}" if stop.get("google_maps_uri") else ""
             rating = f"; Rating: {stop.get('rating')}" if stop.get("rating") is not None else ""
-            lines.append(f"{idx}. {stop.get('name')}; {stop.get('address') or 'Adresse unbekannt'}{rating}{url}")
+            sample = f"; Routenpunkt: {stop.get('sample_index')}" if stop.get("sample_index") is not None else ""
+            lines.append(f"{idx}. {stop.get('name')}; {stop.get('address') or 'Adresse unbekannt'}{rating}{sample}{url}")
     lines.extend([
         "",
         "Antwortpflicht: Antworte als Anschluss an die bestehende Route. Behaupte keine frischen Google-Daten. Wenn du Kandidaten bewertest, nenne sie als Kandidaten, nicht als garantierte Stopps.",

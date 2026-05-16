@@ -1,3 +1,11 @@
+## 2026-05-16 - Lade-/Tankstopp-Auswahl über Routenpunkte balanciert
+- **Typ:** fix
+- **Problem:** Places konnte pro gesampeltem Routenpunkt bis zu 6 Treffer liefern; danach wurde global auf 6 gekürzt. Dadurch konnten alle Kandidaten vom Startpunkt kommen und unterwegs liegende Treffer verdrängen.
+- **Änderung:** Stopp-Kandidaten werden jetzt pro Routenpunkt balanciert ausgewählt. Der Kontext enthält `Stopp-Abdeckung` mit Sample-Indizes.
+- **Guardrails:** Wenn Google nur Kandidaten aus einem Routenbereich liefert, muss Hermes das sagen und darf keine unterwegs liegenden Stopps aus Trainingswissen ergänzen.
+- **Version:** Plugin version raised to `0.8.0-beta.10`.
+- **Tests:** Test suite expanded from 61 to 63 dependency-free tests.
+
 ## 2026-05-16 - Google-Routes-Diagnosetool ergänzt
 - **Typ:** diagnostics
 - **Problem:** Bei unplausiblen Routen war nicht eindeutig sichtbar, ob Google Routes wirklich antwortete oder ob das Modell Route/Orte erfand.

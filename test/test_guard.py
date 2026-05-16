@@ -1189,6 +1189,71 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(payload["route_shape"]["point_count"], 3)
         self.assertEqual(len(payload["route_shape"]["sample_points"]), 3)
 
+    def test_balanced_route_stop_candidates_spread_across_samples(self):
+        stops = [
+            {"name": f"Start {idx}", "address": "Forchheim", "sample_index": 1, "google_maps_uri": f"https://maps.example/start-{idx}"}
+            for idx in range(6)
+        ] + [
+            {"name": f"Middle {idx}", "address": "Route Mitte", "sample_index": 2, "google_maps_uri": f"https://maps.example/middle-{idx}"}
+            for idx in range(2)
+        ] + [
+            {"name": f"End {idx}", "address": "Riva", "sample_index": 3, "google_maps_uri": f"https://maps.example/end-{idx}"}
+            for idx in range(2)
+        ]
+
+        balanced = guard._balanced_route_stop_candidates(stops, 6)
+
+        self.assertEqual(len(balanced), 6)
+        self.assertEqual({item["sample_index"] for item in balanced}, {1, 2, 3})
+        self.assertLessEqual(sum(1 for item in balanced if item["sample_index"] == 1), 2)
+
+    def test_route_planning_payload_balances_chargers_across_route_samples(self):
+        old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        original_routes = guard._google_routes_compute
+        original_chargers = guard._google_places_nearby_ev_chargers
+        try:
+            os.environ["GOOGLE_MAPS_API_KEY"] = "test-key"
+            guard._google_routes_compute = lambda origin, destination, api_key: {
+                "routes": [
+                    {
+                        "distanceMeters": 620000,
+                        "duration": "25200s",
+                        "staticDuration": "24000s",
+                        "polyline": {"encodedPolyline": "_p~iF~ps|U_ulLnnqC_mqNvxq`@"},
+                    }
+                ]
+            }
+
+            def fake_chargers(point, api_key, limit):
+                if point["latitude"] < 39:
+                    prefix = "start"
+                elif point["latitude"] < 41:
+                    prefix = "middle"
+                else:
+                    prefix = "end"
+                return [
+                    {
+                        "displayName": {"text": f"{prefix} charger {idx}"},
+                        "formattedAddress": prefix,
+                        "googleMapsUri": f"https://maps.example/{prefix}-{idx}",
+                    }
+                    for idx in range(6)
+                ]
+
+            guard._google_places_nearby_ev_chargers = fake_chargers
+            payload = guard._route_planning_payload("Forchheim", "Riva del Garda", True, False)
+        finally:
+            guard._google_routes_compute = original_routes
+            guard._google_places_nearby_ev_chargers = original_chargers
+            if old_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_key
+
+        self.assertEqual(len(payload["chargers"]), 6)
+        self.assertGreater(payload["stop_coverage"]["chargers"]["sample_coverage"], 1)
+        self.assertEqual({item["sample_index"] for item in payload["chargers"]}, {1, 2, 3})
+
     def test_route_test_tool_reports_missing_key(self):
         old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
         old_rg_key = os.environ.get("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY")

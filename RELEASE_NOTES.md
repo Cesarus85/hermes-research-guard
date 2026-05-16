@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.8.0-beta.10
+
+This beta fixes stop-candidate selection for route planning.
+
+### Fixed
+
+- EV charger and fuel-stop candidates are now balanced across sampled route points before injection.
+- A dense cluster at the start of the route can no longer fill the entire candidate list and hide middle/end route samples.
+- Route context now includes stop coverage diagnostics with sampled route-point indexes.
+- Guardrails now explicitly forbid supplementing missing along-route stops from training knowledge when Google only returned candidates from one sampled route area.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.10
+```
+
+Expected tests:
+
+```text
+Ran 63 tests
+OK
+```
+
 ## v0.8.0-beta.9
 
 This beta adds explicit Google Routes API diagnostics for route-planning problems.

@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.9`
+**Beta release:** `v0.8.0-beta.10`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -83,7 +83,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.9
+version: 0.8.0-beta.10
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -120,7 +120,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.9
+version: 0.8.0-beta.10
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -297,6 +297,8 @@ The feature currently uses:
 It intentionally injects guardrails into Hermes: the model is told to treat the result as a rough route and stop-candidate basis, not as a guaranteed EV or fuel planner. It must not invent exact state-of-charge curves, charger availability, fuel availability, prices, or charge/refuel times unless the user supplied enough vehicle data and the source data actually supports it.
 
 Route/Places payloads are not written to Research Guard's persistent web-search cache. This keeps the Hermes plugin conservative with Google Maps Platform caching and storage policies. Cost control comes from explicit opt-in, per-request timeouts, a small number of sampled route points, capped EV charger candidates, capped fuel-stop candidates, and opt-in-only fuel price fields.
+
+Stop candidates are balanced across sampled route points before they are injected. If Google only returns candidates from one sampled route area, Research Guard tells the model to say that explicitly and not to supplement missing along-route stops from training knowledge.
 
 ### Route Follow-Ups
 
