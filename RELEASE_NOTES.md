@@ -1,5 +1,35 @@
 # Release Notes
 
+## v0.8.0-beta.20
+
+This beta closes the remaining route-planning wording gaps around candidate lists.
+
+### Fixed
+
+- Route contexts now explicitly block strategy/order wording such as `erster Ladestopp`, `zweiter Stopp`, `Hauptladestopp`, `Zwei-Stopp-Strategie`, and "this should get you through" style claims unless Research Guard has actually calculated an optimized stop sequence.
+- Toll and vignette language is stricter: no `wahrscheinlich relevant`, `Vignette nötig`, `Brennermaut`, or reminder-style toll claims unless official toll data was injected.
+- The `Grobe Einordnung` section is limited to coarse route position, available/missing connector data, and "to check" language. Free geography interpretations such as "before the Alpine ascent" or "after the Brenner" are blocked unless they come directly from Google Routes steps.
+- Route follow-ups receive the same guardrails, so a later request for two stops or a preferred station cannot turn candidates into a fabricated itinerary.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.20
+```
+
+Expected tests:
+
+```text
+Ran 73 tests
+```
+
 ## v0.8.0-beta.19
 
 This beta reintroduces highway/road chains safely.

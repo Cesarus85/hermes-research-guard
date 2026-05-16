@@ -1,3 +1,12 @@
+## 2026-05-16 - Strategie- und Maut-Hintertüren blockiert
+- **Typ:** fix
+- **Problem:** Hermes konnte weiterhin aus Kandidaten eine Reihenfolge oder Strategie formulieren (`erster Ladestopp`, `zweiter Stopp`, `Zwei-Stopp-Strategie`) und Maut/Vignette durch Hinweise wie `wahrscheinlich relevant` oder `vergiss die Vignette nicht` einschleusen.
+- **Änderung:** Reihenfolge-/Strategieformulierungen werden explizit blockiert, solange Research Guard keine echte Stoppreihenfolge berechnet hat.
+- **Maut:** Maut-/Vignetten-Erinnerungen, `Brennermaut`, `Vignette nötig`, `wahrscheinlich relevant` und ähnliche Formulierungen sind ohne offizielle injizierte Daten verboten.
+- **Grobe Einordnung:** Darf nur noch grobe Routenposition, Connector-Daten vorhanden/fehlen und `prüfen` enthalten; keine Reihenfolge, keine Segment-/SoC-/Zeitangaben und keine freie Geografie wie `vor dem Alpenanstieg`.
+- **Version:** Plugin version raised to `0.8.0-beta.20`.
+- **Tests:** Context tests now assert blocked strategy/maut/geography wording.
+
 ## 2026-05-16 - Geprüfte Verlaufskette aus Google-Routes-Schritten
 - **Typ:** feature/fix
 - **Problem:** Autobahnketten sind für Routenplanung nützlich, durften aber nicht aus Modellwissen rekonstruiert werden.

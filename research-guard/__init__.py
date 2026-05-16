@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.19"
+__version__ = "0.8.0-beta.20"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1735,6 +1735,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Planungsstatus: Research Guard liefert Route + Places-Kandidaten. Es berechnet KEINE optimierte Stoppreihenfolge, KEINE Etappendistanzen zwischen Kandidaten und KEINE SoC-/Ladezeitkurve.",
         "Stoppsprache: Verwende `Kandidaten`, `mögliche Stopps` oder `zu prüfen`, aber nicht `ideale Stopps`, `optimal` oder `empfohlen`, wenn Research Guard diese Optimierung nicht ausdrücklich berechnet hat.",
         "Bewertungssprache: Wenn Kandidaten gute Connector-Daten haben, schreibe höchstens `plausibel zu prüfen` oder `stärker belegter Kandidat`. Schreibe nicht `Empfehlung`, `ideal`, `beste Option`, `hohe Verfügbarkeit`, `der ID.7 lädt hier schnell` oder ähnliche Optimierungsaussagen.",
+        "Reihenfolge-Verbot: Schreibe keine Formulierungen wie `erster Ladestopp`, `zweiter Stopp`, `als erster/zweiter Stop`, `Hauptladestopp`, `Hauptkandidat`, `Zwei-Stopp-Strategie`, `Strategie`, `Plan`, `sollte dich durchbringen` oder `das reicht`, solange keine echte Stoppreihenfolge berechnet wurde.",
         "Places-Pflicht: Nenne ausschließlich die unten aufgeführten Places-Kandidaten. Erfinde keine weiteren Ladeparks, Supercharger, Tankstellen, Anbieter oder Ziel-Ladepunkte.",
         "Segmentpflicht: Nenne keine Kilometerangaben oder Zeitangaben zwischen Start, Kandidaten und Ziel, außer sie stehen ausdrücklich im Routen-Kontext.",
         "Wenn der Nutzer ideale Lade-/Tankstopps verlangt, sage klar: Research Guard liefert Kandidaten entlang/nahe der Route, aber keine echte ABRP-/Live-Ladeplanung oder fahrzeugspezifisch optimierte Stoppreihenfolge.",
@@ -1752,7 +1753,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Erfinde keine Zwischenorte, Autobahnen, Pässe oder Umwege, die nicht im Kontext stehen. Wenn der Nutzer nach dem Verlauf fragt, nutze nur Distanz/Zeit und Route-Shape-Diagnostik oder sage, dass keine Ortsnamen vorliegen.",
         "Streckenverlauf-Regel: Nenne Autobahnen, Straßen, Anschlussstellen, Grenzübergänge oder Zwischenorte nur, wenn sie unten in `Streckenverlauf aus Google Routes` stehen. Wenn keine Schritte vorhanden sind, sage: `Der detaillierte Streckenverlauf liegt im Research-Guard-Kontext nicht vor.`",
         "Verlaufsformat-Regel: Gib den Streckenverlauf nur als nummerierte `Google-Routes-Schritte` aus. Erstelle KEINE eigene kompakte Autobahnkette wie `B470 -> A73 -> A3 -> ...`, keine korrigierte Route und keine Ergänzungen aus Weltwissen.",
-        "Maut-/Kosten-Regel: Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Mautpflicht, Höhenmeter, Passhöhen oder Grenzdetails. Wenn der Nutzer danach fragt, schreibe: `Research Guard hat dazu keine offiziellen Maut-/Vignetten-/Höhendaten injiziert.`",
+        "Maut-/Kosten-Regel: Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Mautpflicht, Höhenmeter, Passhöhen oder Grenzdetails. Schreibe nicht `wahrscheinlich relevant`, `Vignette nötig`, `Brennermaut`, `vergiss die Vignette nicht` oder ähnliche Erinnerungen. Wenn der Nutzer danach fragt, schreibe: `Research Guard hat dazu keine offiziellen Maut-/Vignetten-/Höhendaten injiziert.`",
         "Stopppositions-Regel: `Routenpunkt`, `route_position` und `route_progress_percent_approx` sind nur grobe Suchbereiche entlang der Polyline. Verwende sie nicht als exakte Stoppreihenfolge, Etappe, Segmentdistanz oder Beweis, dass ein Ladepunkt direkt auf der Route liegt.",
         "Mehrstopps-Regel: Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, liefere nur eine Kandidatenliste nach grober Routenposition. Behaupte keine optimierte Zwei-Stopp-Route, keine Etappen wie `Stop 1 -> Stop 2`, und keine Segmentkilometer, solange Research Guard keine echte Segment-/SoC-Optimierung liefert.",
         "Konflikt-Regel: Wenn nur ein Kandidat mit bestätigten Connector-/Leistungsdaten im relevanten unterwegs-Bereich vorhanden ist, sage das klar, statt einen zweiten Ladepunkt als gleichwertigen Stop zu behandeln.",
@@ -1761,7 +1762,8 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Vorlagen-Regel: Eine `Streckenverlauf`-Rubrik darf nur erscheinen, wenn der Nutzer ausdrücklich nach Verlauf/Autobahnen/Straßen fragt. Dann ausschließlich nummerierte Google-Routes-Schritte ausgeben, keine Ein-Zeilen-Kette.",
         "Maut-Rubrik-Regel: Eine Maut-/Vignetten-Rubrik darf nur erscheinen, wenn offizielle Mautdaten injiziert sind. Sonst schreibe höchstens unter `Nicht von Research Guard geprüft`: `Maut/Vignette wurde von Research Guard nicht geprüft.`",
         "Verbotene-Rubriken-Regel: Verwende keine Rubriken oder Aussagen wie `Meine Empfehlung`, `Plausibler Ladeplan`, `Ideale Stopps`, `Stärkster Kandidat`, `Wichtige Hinweise: Vignette nötig`, wenn diese Inhalte nicht offiziell berechnet oder belegt sind.",
-        "Grobe-Einordnung-Regel: In `Grobe Einordnung` sind nur Kandidaten nach grober Routenposition erlaubt. Keine SoC-Prozente, keine Ladefenster, keine Ladezeit-Minuten, keine Segmentkilometer, keine `das sollte reichen/durchbringen`-Aussage.",
+        "Grobe-Einordnung-Regel: In `Grobe Einordnung` sind nur Kandidaten nach grober Routenposition, Connector-Daten vorhanden/fehlen und `prüfen` erlaubt. Keine Reihenfolge, keine SoC-Prozente, keine Ladefenster, keine Ladezeit-Minuten, keine Segmentkilometer, keine `das sollte reichen/durchbringen`-Aussage.",
+        "Geografie-Interpretations-Regel: Schreibe keine freien geografischen Bewertungen wie `vor dem Alpenanstieg`, `nach dem Brenner`, `Brenner-Pass relevant`, `italienische Etappe` oder ähnliche Kontextdeutungen, wenn sie nicht ausdrücklich in Google-Routes-Schritten stehen.",
         "Tool-Angebot-Regel: Biete nicht an, ABRP, PlugShare, VW-App oder andere externe Apps aufzurufen oder Live-Status zu prüfen, wenn kein entsprechendes Tool im Kontext steht. Verweise nur darauf, dass der Nutzer dort selbst prüfen sollte.",
     ]
     if preferences:
@@ -1880,6 +1882,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Planungsstatus: Der gespeicherte Kontext enthält Route + Places-Kandidaten, aber keine optimierte Stoppreihenfolge, keine Etappendistanzen zwischen Kandidaten und keine SoC-/Ladezeitkurve.",
         "Nenne ausschließlich die gespeicherten Places-Kandidaten und bezeichne sie nicht als ideal, optimal oder garantiert empfohlen, außer diese Optimierung steht ausdrücklich im Kontext.",
         "Wenn Kandidaten gute Connector-Daten haben, schreibe höchstens `plausibel zu prüfen` oder `stärker belegter Kandidat`. Schreibe nicht `Empfehlung`, `ideal`, `beste Option`, `hohe Verfügbarkeit`, `der ID.7 lädt hier schnell` oder ähnliche Optimierungsaussagen.",
+        "Schreibe keine Formulierungen wie `erster Ladestopp`, `zweiter Stopp`, `als erster/zweiter Stop`, `Hauptladestopp`, `Hauptkandidat`, `Zwei-Stopp-Strategie`, `Strategie`, `Plan`, `sollte dich durchbringen` oder `das reicht`, solange keine echte Stoppreihenfolge berechnet wurde.",
         "Erfinde keine zusätzlichen Ladeparks, Tankstellen, Segment-Kilometer, SoC-Werte, Ladezeiten, Ladeleistungen, Preise oder Live-Verfügbarkeiten.",
         "Wenn du Reichweite, Energiebedarf oder Ladestopp-Anzahl schätzt, nutze nur die gespeicherte Energie-Plausibilitätsrechnung und rechne keine widersprüchlichen Werte aus.",
         "Nenne keine 20-80%-Fenster, Minuten-Ladezeiten, Ziel-SoC oder Rest-SoC, wenn diese nicht ausdrücklich im gespeicherten Kontext stehen.",
@@ -1887,6 +1890,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Erfinde keine Aussagen zu Raststätten, Kaffee, WC, Shops, Zuverlässigkeit, Preisen, Betreiberqualität oder Tesla-Fremdmarken-Freigaben.",
         "Bei Fragen zum Streckenverlauf: Nutze nur gespeicherte Google-Routes-Schritte. Gib sie nur als nummerierte Schritte aus; keine eigene kompakte Autobahnkette und keine Ergänzungen aus Weltwissen.",
         "Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Mautpflicht, Höhenmeter, Passhöhen, Grenzdetails, Autobahnen oder Anschlussstellen außerhalb der gespeicherten Google-Routes-Schritte.",
+        "Schreibe nicht `wahrscheinlich relevant`, `Vignette nötig`, `Brennermaut`, `vergiss die Vignette nicht` oder ähnliche Maut-Erinnerungen.",
         "Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, aber nur gespeicherte Kandidaten vorliegen, liefere keine selbst gebaute Etappenplanung. Liste Kandidaten nach grober Routenposition und sage, dass Research Guard keine optimierte Mehrstopp-Route berechnet.",
         "Ordne Lade-/Tankkandidaten nicht frei zwischen Google-Routes-Schritten ein und erfinde keine Segmentkilometer zwischen Kandidaten.",
         "Nutze nur diese Rubriken: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`.",
@@ -1894,6 +1898,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "`Streckenverlauf` nur bei ausdrücklicher Nachfrage und dann nur als nummerierte gespeicherte Google-Routes-Schritte, nie als Ein-Zeilen-Autobahnkette.",
         "Maut/Vignette nur als `nicht von Research Guard geprüft`, sofern keine offiziellen Mautdaten gespeichert sind.",
         "In `Grobe Einordnung` sind keine SoC-Prozente, Ladefenster, Ladezeit-Minuten, Segmentkilometer oder `das sollte reichen/durchbringen`-Aussagen erlaubt.",
+        "In `Grobe Einordnung` sind nur Kandidaten nach grober Routenposition, Connector-Daten vorhanden/fehlen und `prüfen` erlaubt. Keine Reihenfolge und keine geografischen Bewertungen wie `vor dem Alpenanstieg`, `nach dem Brenner`, `italienische Etappe`.",
         "Biete nicht an, ABRP, PlugShare, VW-App oder externe Live-Status-Checks aufzurufen, wenn kein entsprechendes Tool im Kontext steht.",
         f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
         f"Modell: {model or 'unknown'}",
