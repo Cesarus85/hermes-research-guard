@@ -893,12 +893,18 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
         self.assertTrue(guard._is_route_planning_prompt(prompt))
         self.assertFalse(guard._is_route_planning_prompt("Wo liegt Forchheim?"))
-        self.assertFalse(guard._is_route_planning_prompt("Plane eine Route von Forchheim nach Berlin mit Tankplanung."))
+        self.assertTrue(guard._is_route_planning_prompt("Plane eine Route von Forchheim nach Berlin mit Tankplanung."))
 
         request = guard._extract_route_request(prompt)
         self.assertEqual(request["origin"], "Forchheim")
         self.assertEqual(request["destination"], "Berlin")
         self.assertIn("ladeplanung", request["preferences"]["ev_or_fuel_terms_detected"])
+        self.assertTrue(request["needs_ev_chargers"])
+        self.assertFalse(request["needs_fuel_stops"])
+
+        fuel_request = guard._extract_route_request("Plane eine Route von Forchheim nach Berlin mit Tankstopps.")
+        self.assertFalse(fuel_request["needs_ev_chargers"])
+        self.assertTrue(fuel_request["needs_fuel_stops"])
 
     def test_enabled_route_planning_without_api_key_injects_guardrail_context(self):
         guard.DECISIONS.clear()
@@ -943,7 +949,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         try:
             os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = "true"
             os.environ["GOOGLE_MAPS_API_KEY"] = "test-key"
-            guard._route_planning_payload = lambda origin, destination: {
+            guard._route_planning_payload = lambda origin, destination, needs_ev=True, needs_fuel=False: {
                 "success": True,
                 "provider": "google-maps",
                 "origin": origin,
@@ -969,6 +975,15 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
                         ],
                     }
                 ],
+                "fuel_stops": [
+                    {
+                        "name": "Example Fuel",
+                        "address": "A9 Tankstelle Beispiel",
+                        "rating": 4.1,
+                        "google_maps_uri": "https://maps.google.com/?cid=456",
+                        "fuel_prices": [],
+                    }
+                ] if needs_fuel else [],
                 "warnings": [],
                 "cached": False,
                 "cache_key": "route=test",
@@ -1000,6 +1015,66 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning")
         self.assertEqual(guard.DECISIONS[-1]["route_planning"]["charger_candidate_count"], 1)
 
+    def test_route_planning_context_supports_fuel_stops(self):
+        guard.DECISIONS.clear()
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        original_payload = guard._route_planning_payload
+        try:
+            os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = "true"
+            os.environ["GOOGLE_MAPS_API_KEY"] = "test-key"
+
+            def fake_payload(origin, destination, needs_ev=True, needs_fuel=False):
+                self.assertFalse(needs_ev)
+                self.assertTrue(needs_fuel)
+                return {
+                    "success": True,
+                    "provider": "google-maps",
+                    "origin": origin,
+                    "destination": destination,
+                    "route": {
+                        "distance_meters": 410000,
+                        "duration_seconds": 14400,
+                        "static_duration_seconds": 13800,
+                    },
+                    "chargers": [],
+                    "fuel_stops": [
+                        {
+                            "name": "Example Fuel",
+                            "address": "A9 Tankstelle Beispiel",
+                            "rating": 4.1,
+                            "google_maps_uri": "https://maps.google.com/?cid=456",
+                            "fuel_prices": [],
+                        }
+                    ],
+                    "warnings": [],
+                    "cached": False,
+                }
+
+            guard._route_planning_payload = fake_payload
+            result = guard.pre_llm_research_guard(
+                "s1",
+                "Plane eine Route von Forchheim nach Berlin mit Tankstopps.",
+                "qwen3",
+                "ollama",
+            )
+        finally:
+            guard._route_planning_payload = original_payload
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+            if old_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_key
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("Tankstopp-Kandidaten aus Places", result["context"])
+        self.assertIn("Example Fuel", result["context"])
+        self.assertNotIn("Ladepunkt-Kandidaten: Keine", result["context"])
+        self.assertEqual(guard.DECISIONS[-1]["route_planning"]["fuel_stop_candidate_count"], 1)
+
     def test_route_planning_status_reports_config(self):
         old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
         old_key = os.environ.get("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY")
@@ -1021,6 +1096,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertTrue(status["config"]["route_planning"]["api_key_configured"])
         self.assertEqual(status["config"]["route_planning"]["provider"], "google-maps")
         self.assertFalse(status["config"]["route_planning"]["persistent_cache"])
+        self.assertFalse(status["config"]["route_planning"]["include_fuel_options"])
 
 
 if __name__ == "__main__":

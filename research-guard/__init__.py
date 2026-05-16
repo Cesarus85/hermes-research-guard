@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.3"
+__version__ = "0.8.0-beta.4"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -182,7 +182,18 @@ ROUTE_PLANNING_RE = re.compile(
 EV_OR_FUEL_RE = re.compile(
     r"\b(e-auto|elektroauto|elektrofahrzeug|electric\s+car|ev|bev|tesla|"
     r"ladeplanung|laden|lades?äule|lades?aeule|ladestopp|ladestation|charging|charger|"
+    r"ccs|typ\s*2|type\s*2|supercharger|ionity|enbw|aral\s*pulse|"
+    r"tankplanung|tankstopp|tankstopps|tanken|tankstelle|tankstellen|fuel|gas\s*station|petrol\s*station)\b",
+    re.IGNORECASE,
+)
+EV_PLANNING_RE = re.compile(
+    r"\b(e-auto|elektroauto|elektrofahrzeug|electric\s+car|ev|bev|tesla|"
+    r"ladeplanung|laden|lades?äule|lades?aeule|ladestopp|ladestation|charging|charger|"
     r"ccs|typ\s*2|type\s*2|supercharger|ionity|enbw|aral\s*pulse)\b",
+    re.IGNORECASE,
+)
+FUEL_PLANNING_RE = re.compile(
+    r"\b(tankplanung|tankstopp|tankstopps|tanken|tankstelle|tankstellen|fuel|gas\s*station|petrol\s*station)\b",
     re.IGNORECASE,
 )
 ROUTE_FROM_TO_PATTERNS = (
@@ -875,6 +886,8 @@ def _extract_route_request(message: str) -> dict[str, Any]:
             break
     preferences = {
         "ev_or_fuel_terms_detected": sorted(set(match.group(0).lower() for match in EV_OR_FUEL_RE.finditer(text)))[:8],
+        "ev_terms_detected": sorted(set(match.group(0).lower() for match in EV_PLANNING_RE.finditer(text)))[:8],
+        "fuel_terms_detected": sorted(set(match.group(0).lower() for match in FUEL_PLANNING_RE.finditer(text)))[:8],
         "route_terms_detected": sorted(set(match.group(0).lower() for match in ROUTE_PLANNING_RE.finditer(text)))[:8],
     }
     battery_match = re.search(r"\b(\d{2,3})\s*kwh\b", text, flags=re.IGNORECASE)
@@ -889,6 +902,8 @@ def _extract_route_request(message: str) -> dict[str, Any]:
     return {
         "origin": origin,
         "destination": destination,
+        "needs_ev_chargers": bool(EV_PLANNING_RE.search(text)),
+        "needs_fuel_stops": bool(FUEL_PLANNING_RE.search(text)),
         "preferences": {key: value for key, value in preferences.items() if value not in (None, "", [])},
         "prompt": text,
     }
@@ -994,10 +1009,24 @@ def _google_routes_compute(origin: str, destination: str, api_key: str) -> dict[
     )
 
 
-def _google_places_nearby_ev_chargers(point: dict[str, float], api_key: str, limit: int) -> list[dict[str, Any]]:
+def _google_places_nearby(
+    point: dict[str, float],
+    api_key: str,
+    limit: int,
+    place_type: str,
+    extra_fields: list[str] | None = None,
+) -> list[dict[str, Any]]:
     radius = _env_int("RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000)
+    fields = [
+        "places.displayName",
+        "places.formattedAddress",
+        "places.location",
+        "places.rating",
+        "places.googleMapsUri",
+        *(extra_fields or []),
+    ]
     payload = {
-        "includedTypes": ["electric_vehicle_charging_station"],
+        "includedTypes": [place_type],
         "maxResultCount": max(1, min(limit, 20)),
         "locationRestriction": {
             "circle": {
@@ -1008,13 +1037,19 @@ def _google_places_nearby_ev_chargers(point: dict[str, float], api_key: str, lim
     }
     headers = {
         "X-Goog-Api-Key": api_key,
-        "X-Goog-FieldMask": (
-            "places.displayName,places.formattedAddress,places.location,places.rating,"
-            "places.evChargeOptions,places.googleMapsUri"
-        ),
+        "X-Goog-FieldMask": ",".join(dict.fromkeys(fields)),
     }
     data = _json_post("https://places.googleapis.com/v1/places:searchNearby", payload, headers, _route_timeout_seconds())
     return data.get("places") if isinstance(data.get("places"), list) else []
+
+
+def _google_places_nearby_ev_chargers(point: dict[str, float], api_key: str, limit: int) -> list[dict[str, Any]]:
+    return _google_places_nearby(point, api_key, limit, "electric_vehicle_charging_station", ["places.evChargeOptions"])
+
+
+def _google_places_nearby_fuel_stations(point: dict[str, float], api_key: str, limit: int) -> list[dict[str, Any]]:
+    fields = ["places.fuelOptions"] if _env_bool("RESEARCH_GUARD_ROUTE_INCLUDE_FUEL_OPTIONS", False) else []
+    return _google_places_nearby(point, api_key, limit, "gas_station", fields)
 
 
 def _normalize_charger(place: dict[str, Any], sample_index: int) -> dict[str, Any]:
@@ -1042,6 +1077,32 @@ def _normalize_charger(place: dict[str, Any], sample_index: int) -> dict[str, An
     }
 
 
+def _normalize_fuel_stop(place: dict[str, Any], sample_index: int) -> dict[str, Any]:
+    display_name = place.get("displayName") if isinstance(place.get("displayName"), dict) else {}
+    name = display_name.get("text") or place.get("name") or "Fuel station"
+    fuel_options = place.get("fuelOptions") if isinstance(place.get("fuelOptions"), dict) else {}
+    fuel_prices = []
+    for item in fuel_options.get("fuelPrices") or []:
+        if not isinstance(item, dict):
+            continue
+        price = item.get("price") if isinstance(item.get("price"), dict) else {}
+        fuel_prices.append({
+            "type": item.get("type"),
+            "units": price.get("units"),
+            "nanos": price.get("nanos"),
+            "currency_code": price.get("currencyCode"),
+            "update_time": item.get("updateTime"),
+        })
+    return {
+        "name": str(name)[:160],
+        "address": str(place.get("formattedAddress") or "")[:240],
+        "rating": place.get("rating"),
+        "google_maps_uri": place.get("googleMapsUri"),
+        "fuel_prices": fuel_prices[:8],
+        "sample_index": sample_index,
+    }
+
+
 def _dedupe_chargers(chargers: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     seen: set[str] = set()
     deduped: list[dict[str, Any]] = []
@@ -1056,7 +1117,7 @@ def _dedupe_chargers(chargers: list[dict[str, Any]], limit: int) -> list[dict[st
     return deduped
 
 
-def _route_planning_payload(origin: str, destination: str) -> dict[str, Any]:
+def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bool = True, needs_fuel_stops: bool = False) -> dict[str, Any]:
     api_key = _route_api_key()
     route_data = _google_routes_compute(origin, destination, api_key)
     routes = route_data.get("routes") if isinstance(route_data.get("routes"), list) else []
@@ -1067,18 +1128,30 @@ def _route_planning_payload(origin: str, destination: str) -> dict[str, Any]:
     points = _decode_polyline(polyline)
     sample_count = _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5)
     charger_limit = _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12)
+    fuel_limit = _env_int("RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS", 6, 1, 12)
     warnings: list[str] = []
     chargers: list[dict[str, Any]] = []
+    fuel_stops: list[dict[str, Any]] = []
     if not points:
-        warnings.append("Routes response did not include a usable route polyline; EV charger search was skipped.")
+        warnings.append("Routes response did not include a usable route polyline; stop searches were skipped.")
     else:
-        per_search_limit = max(1, min(6, charger_limit))
-        for idx, point in enumerate(_sample_route_points(points, sample_count), 1):
-            try:
-                places = _google_places_nearby_ev_chargers(point, api_key, per_search_limit)
-                chargers.extend(_normalize_charger(place, idx) for place in places if isinstance(place, dict))
-            except Exception as exc:
-                warnings.append(f"EV charger lookup near route sample {idx} failed: {exc}")
+        route_points = _sample_route_points(points, sample_count)
+        if needs_ev_chargers:
+            per_search_limit = max(1, min(6, charger_limit))
+            for idx, point in enumerate(route_points, 1):
+                try:
+                    places = _google_places_nearby_ev_chargers(point, api_key, per_search_limit)
+                    chargers.extend(_normalize_charger(place, idx) for place in places if isinstance(place, dict))
+                except Exception as exc:
+                    warnings.append(f"EV charger lookup near route sample {idx} failed: {exc}")
+        if needs_fuel_stops:
+            per_search_limit = max(1, min(6, fuel_limit))
+            for idx, point in enumerate(route_points, 1):
+                try:
+                    places = _google_places_nearby_fuel_stations(point, api_key, per_search_limit)
+                    fuel_stops.extend(_normalize_fuel_stop(place, idx) for place in places if isinstance(place, dict))
+                except Exception as exc:
+                    warnings.append(f"Fuel station lookup near route sample {idx} failed: {exc}")
     payload = {
         "success": True,
         "provider": "google-maps",
@@ -1090,6 +1163,7 @@ def _route_planning_payload(origin: str, destination: str) -> dict[str, Any]:
             "static_duration_seconds": _parse_google_duration_seconds(route.get("staticDuration")),
         },
         "chargers": _dedupe_chargers(chargers, charger_limit),
+        "fuel_stops": _dedupe_chargers(fuel_stops, fuel_limit),
         "warnings": warnings,
         "cached": False,
     }
@@ -1099,6 +1173,7 @@ def _route_planning_payload(origin: str, destination: str) -> dict[str, Any]:
 def _format_route_context(payload: dict[str, Any], request: dict[str, Any], model: str | None) -> str:
     route = payload.get("route") if isinstance(payload.get("route"), dict) else {}
     chargers = payload.get("chargers") if isinstance(payload.get("chargers"), list) else []
+    fuel_stops = payload.get("fuel_stops") if isinstance(payload.get("fuel_stops"), list) else []
     preferences = request.get("preferences") if isinstance(request.get("preferences"), dict) else {}
     lines = [
         "[Research Guard aktiv]",
@@ -1113,11 +1188,12 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         f"Start: {payload.get('origin') or request.get('origin') or 'unbekannt'}",
         f"Ziel: {payload.get('destination') or request.get('destination') or 'unbekannt'}",
         f"Route laut Google Routes: {_format_distance(route.get('distance_meters'))}; Fahrtzeit mit Verkehr: {_format_duration(route.get('duration_seconds'))}; ohne/typisch: {_format_duration(route.get('static_duration_seconds'))}.",
-        "Datenquelle: Google Maps Platform Routes API und, falls Ladepunkte vorhanden sind, Places API EV charging station search.",
-        "Wichtige Grenze: Das ist eine grobe Routen- und Ladepunkt-Grundlage, keine garantierte optimale EV-Ladeplanung.",
-        "Erfinde keine exakten SoC-Verläufe, Ladezeiten, Preise, Verfügbarkeit oder optimale Stopps, wenn Fahrzeugdaten oder Live-Verfügbarkeiten fehlen.",
-        "Wenn Akku, Verbrauch, Start-SoC, gewünschter Ziel-SoC oder Ladeleistung fehlen, nenne realistische Annahmen ausdrücklich oder frage kurz nach.",
+        "Datenquelle: Google Maps Platform Routes API und, falls Stopps vorhanden sind, Places API Nearby Search.",
+        "Wichtige Grenze: Das ist eine grobe Routen- und Stopp-Kandidaten-Grundlage, keine garantierte optimale Lade- oder Tankplanung.",
+        "Erfinde keine exakten SoC-Verläufe, Ladezeiten, Kraftstoffpreise, Verfügbarkeit oder optimale Stopps, wenn Fahrzeugdaten oder Live-Verfügbarkeiten fehlen.",
+        "Wenn Akku, Verbrauch, Start-SoC, gewünschter Ziel-SoC, Ladeleistung, Kraftstoffart oder Reichweite fehlen, nenne realistische Annahmen ausdrücklich oder frage kurz nach.",
         "Wenn du Ladepunkte nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte funktionierende Stopps.",
+        "Wenn du Tankstellen nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte Kraftstoffverfügbarkeit oder Preisangabe.",
     ]
     if preferences:
         lines.append(f"Erkannte Nutzerparameter: {json.dumps(preferences, ensure_ascii=False)}")
@@ -1138,11 +1214,34 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
             url = f"; Maps: {charger.get('google_maps_uri')}" if charger.get("google_maps_uri") else ""
             rating = f"; Rating: {charger.get('rating')}" if charger.get("rating") is not None else ""
             lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{url}")
-    else:
+    elif request.get("needs_ev_chargers"):
         lines.extend([
             "",
             "Ladepunkt-Kandidaten: Keine verwertbaren Places-Ergebnisse im Routen-Kontext.",
-            "Antworte daher besonders vorsichtig und plane Ladepunkte nicht als Fakten ein.",
+            "Plane Ladepunkte daher nicht als Fakten ein.",
+        ])
+    if fuel_stops:
+        lines.extend(["", "Tankstopp-Kandidaten aus Places:"])
+        for idx, stop in enumerate(fuel_stops, 1):
+            price_text = []
+            for price in stop.get("fuel_prices") or []:
+                if price.get("units") is None:
+                    continue
+                units = price.get("units")
+                nanos = price.get("nanos") or 0
+                amount = float(units) + float(nanos) / 1_000_000_000
+                currency = price.get("currency_code") or ""
+                fuel_type = price.get("type") or "fuel"
+                price_text.append(f"{fuel_type}: {amount:.3f} {currency}".strip())
+            details = f"; Preise: {'; '.join(price_text)}" if price_text else ""
+            url = f"; Maps: {stop.get('google_maps_uri')}" if stop.get("google_maps_uri") else ""
+            rating = f"; Rating: {stop.get('rating')}" if stop.get("rating") is not None else ""
+            lines.append(f"{idx}. {stop.get('name')}; {stop.get('address') or 'Adresse unbekannt'}{rating}{details}{url}")
+    elif request.get("needs_fuel_stops"):
+        lines.extend([
+            "",
+            "Tankstopp-Kandidaten: Keine verwertbaren Places-Ergebnisse im Routen-Kontext.",
+            "Plane Tankstopps daher nicht als Fakten ein.",
         ])
     lines.extend([
         "",
@@ -1155,11 +1254,11 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
 def _format_route_unavailable_context(request: dict[str, Any], reason: str) -> str:
     lines = [
         "[Research Guard: Routenplanung nicht ausgeführt]",
-        "Der Nutzer fragt nach Routen- oder Ladeplanung, aber Research Guard konnte keine Google-Routendaten abrufen.",
+        "Der Nutzer fragt nach Routen-, Lade- oder Tankplanung, aber Research Guard konnte keine Google-Routendaten abrufen.",
         f"Grund: {reason}",
         f"Start erkannt: {request.get('origin') or 'unbekannt'}",
         f"Ziel erkannt: {request.get('destination') or 'unbekannt'}",
-        "Antworte nicht so, als lägen Live-Routen-, Verkehrs- oder Ladepunktdaten vor.",
+        "Antworte nicht so, als lägen Live-Routen-, Verkehrs-, Ladepunkt- oder Tankstellendaten vor.",
         "Wenn Start oder Ziel fehlen, frage gezielt danach.",
         "Wenn nur der API-Key fehlt, erkläre knapp, dass für diese Hermes-Research-Guard-Funktion `GOOGLE_MAPS_API_KEY` oder `RESEARCH_GUARD_GOOGLE_MAPS_API_KEY` gesetzt sein muss.",
         "[/Research Guard: Routenplanung nicht ausgeführt]",
@@ -1194,7 +1293,12 @@ def _route_planning_response(user_message: str, model: str | None, provider: str
         )
         return {"context": _format_route_unavailable_context(request, "Google Maps API key ist nicht konfiguriert.")}
     try:
-        payload = _route_planning_payload(str(request["origin"]), str(request["destination"]))
+        payload = _route_planning_payload(
+            str(request["origin"]),
+            str(request["destination"]),
+            bool(request.get("needs_ev_chargers")),
+            bool(request.get("needs_fuel_stops")),
+        )
     except Exception as exc:
         _record_decision(
             "failed",
@@ -1222,6 +1326,7 @@ def _route_planning_response(user_message: str, model: str | None, provider: str
             "distance_meters": route.get("distance_meters"),
             "duration_seconds": route.get("duration_seconds"),
             "charger_candidate_count": len(payload.get("chargers") or []),
+            "fuel_stop_candidate_count": len(payload.get("fuel_stops") or []),
             "warnings": payload.get("warnings") or [],
         },
         sources=[
@@ -1234,6 +1339,11 @@ def _route_planning_response(user_message: str, model: str | None, provider: str
                 "title": "Google Maps Platform Places API EV charging",
                 "url": "https://developers.google.com/maps/documentation/places/web-service/place-data-fields",
                 "snippet": "EV charging station metadata and connector options when available.",
+            },
+            {
+                "title": "Google Maps Platform Places API fuel options",
+                "url": "https://developers.google.com/maps/documentation/places/web-service/data-fields",
+                "snippet": "Gas station place metadata and optional fuel options when explicitly enabled.",
             },
         ],
     )
@@ -2422,7 +2532,9 @@ def _config_snapshot() -> dict[str, Any]:
             "persistent_cache": False,
             "max_charger_searches": _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5),
             "max_chargers": _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12),
+            "max_fuel_stops": _env_int("RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS", 6, 1, 12),
             "charger_radius_meters": _env_int("RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000),
+            "include_fuel_options": _env_bool("RESEARCH_GUARD_ROUTE_INCLUDE_FUEL_OPTIONS", False),
         },
     }
 

@@ -1,3 +1,11 @@
+## 2026-05-16 - Tankstopp-Kandidaten für Routenplanung ergänzt
+- **Typ:** feature
+- **Feature:** Optionales Google-Maps-Route-Planning berücksichtigt jetzt neben EV-Ladepunkten auch Tankstopp-Kandidaten über Places `gas_station`.
+- **Kostenkontrolle:** Kraftstoff-/Preisfelder (`fuelOptions`) sind standardmäßig deaktiviert und nur per `RESEARCH_GUARD_ROUTE_INCLUDE_FUEL_OPTIONS=true` abrufbar.
+- **Status:** `research_guard_status` zeigt `max_fuel_stops`, `include_fuel_options` und pro Entscheidung `fuel_stop_candidate_count`.
+- **Version:** Plugin version raised to `0.8.0-beta.4`.
+- **Tests:** Test suite expanded from 49 to 50 dependency-free tests.
+
 ## 2026-05-16 - Optionale Google-Maps-Routenquelle ergänzt
 - **Typ:** feature
 - **Feature:** Optionales Route-Planning-Modul für Hermes Research Guard ergänzt. Es erkennt Routen-, Fahrstrecken- und EV-Ladeplanungsfragen und kann Google Maps Platform als spezialisierte Datenquelle nutzen.

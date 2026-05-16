@@ -1,5 +1,40 @@
 # Release Notes
 
+## v0.8.0-beta.4
+
+This beta extends optional Google Maps route planning with fuel-stop candidates. The plugin remains a **Hermes Agent plugin only**; there is no standalone runtime or standalone installation path.
+
+### New
+
+- Fuel-stop route context for prompts that ask for tank stops, gas stations, or fuel planning.
+- Google Places API Nearby Search integration for `gas_station` candidates near sampled route points.
+- Optional `RESEARCH_GUARD_ROUTE_INCLUDE_FUEL_OPTIONS=false` guard. Fuel price/options fields are off by default because they can trigger higher-cost Places SKUs.
+- Route diagnostics now include `fuel_stop_candidate_count`, `max_fuel_stops`, and `include_fuel_options`.
+
+### API Key
+
+One Google Maps Platform API key is enough for Hermes Research Guard if the key belongs to a billing-enabled Google Cloud project where both **Routes API** and **Places API (New)** are enabled. Separate keys are optional for tighter security or quota isolation, but not required by the plugin.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.4
+```
+
+Expected tests:
+
+```text
+Ran 50 tests
+OK
+```
+
 ## v0.8.0-beta.3
 
 This beta adds an optional Google Maps route-planning datasource for Hermes Research Guard. The plugin is still a **Hermes Agent plugin only**; there is no standalone runtime or standalone installation path.
