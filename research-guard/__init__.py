@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.16"
+__version__ = "0.8.0-beta.17"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1677,6 +1677,11 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Stopppositions-Regel: `Routenpunkt`, `route_position` und `route_progress_percent_approx` sind nur grobe Suchbereiche entlang der Polyline. Verwende sie nicht als exakte Stoppreihenfolge, Etappe, Segmentdistanz oder Beweis, dass ein Ladepunkt direkt auf der Route liegt.",
         "Mehrstopps-Regel: Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, liefere nur eine Kandidatenliste nach grober Routenposition. Behaupte keine optimierte Zwei-Stopp-Route, keine Etappen wie `Stop 1 -> Stop 2`, und keine Segmentkilometer, solange Research Guard keine echte Segment-/SoC-Optimierung liefert.",
         "Konflikt-Regel: Wenn nur ein Kandidat mit bestätigten Connector-/Leistungsdaten im relevanten unterwegs-Bereich vorhanden ist, sage das klar, statt einen zweiten Ladepunkt als gleichwertigen Stop zu behandeln.",
+        "Antwortvorlage-Pflicht: Nutze für normale Routen-/Ladeplanungsantworten nur diese Rubriken: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`.",
+        "Vorlagen-Regel: Eine `Streckenverlauf`-Rubrik darf nur erscheinen, wenn der Nutzer ausdrücklich nach Verlauf/Autobahnen/Straßen fragt. Dann ausschließlich nummerierte Google-Routes-Schritte ausgeben, keine Ein-Zeilen-Kette.",
+        "Maut-Rubrik-Regel: Eine Maut-/Vignetten-Rubrik darf nur erscheinen, wenn offizielle Mautdaten injiziert sind. Sonst schreibe höchstens unter `Nicht von Research Guard geprüft`: `Maut/Vignette wurde von Research Guard nicht geprüft.`",
+        "Verbotene-Rubriken-Regel: Verwende keine Rubriken oder Aussagen wie `Meine Empfehlung`, `Plausibler Ladeplan`, `Ideale Stopps`, `Stärkster Kandidat`, `Wichtige Hinweise: Vignette nötig`, wenn diese Inhalte nicht offiziell berechnet oder belegt sind.",
+        "Tool-Angebot-Regel: Biete nicht an, ABRP, PlugShare, VW-App oder andere externe Apps aufzurufen oder Live-Status zu prüfen, wenn kein entsprechendes Tool im Kontext steht. Verweise nur darauf, dass der Nutzer dort selbst prüfen sollte.",
     ]
     if preferences:
         lines.append(f"Erkannte Nutzerparameter: {json.dumps(preferences, ensure_ascii=False)}")
@@ -1799,6 +1804,10 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Mautpflicht, Höhenmeter, Passhöhen, Grenzdetails, Autobahnen oder Anschlussstellen außerhalb der gespeicherten Google-Routes-Schritte.",
         "Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, aber nur gespeicherte Kandidaten vorliegen, liefere keine selbst gebaute Etappenplanung. Liste Kandidaten nach grober Routenposition und sage, dass Research Guard keine optimierte Mehrstopp-Route berechnet.",
         "Ordne Lade-/Tankkandidaten nicht frei zwischen Google-Routes-Schritten ein und erfinde keine Segmentkilometer zwischen Kandidaten.",
+        "Nutze nur diese Rubriken: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`.",
+        "`Streckenverlauf` nur bei ausdrücklicher Nachfrage und dann nur als nummerierte gespeicherte Google-Routes-Schritte, nie als Ein-Zeilen-Autobahnkette.",
+        "Maut/Vignette nur als `nicht von Research Guard geprüft`, sofern keine offiziellen Mautdaten gespeichert sind.",
+        "Biete nicht an, ABRP, PlugShare, VW-App oder externe Live-Status-Checks aufzurufen, wenn kein entsprechendes Tool im Kontext steht.",
         f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
         f"Modell: {model or 'unknown'}",
         f"Ursprüngliche Route: {snapshot.get('origin') or 'unbekannt'} -> {snapshot.get('destination') or 'unbekannt'}",

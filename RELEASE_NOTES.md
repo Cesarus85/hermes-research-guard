@@ -1,5 +1,37 @@
 # Release Notes
 
+## v0.8.0-beta.17
+
+This beta adds a required answer template for route planning.
+
+### Fixed
+
+- Route-planning answers are constrained to allowed sections: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, and `Datenquelle`.
+- A `Streckenverlauf` section is allowed only when the user explicitly asks for route course/highways/roads, and then only as numbered Google Routes steps.
+- One-line highway chains such as `B470 -> A73 -> A3 -> ...` are explicitly disallowed.
+- Toll/vignette content may only appear as “not checked by Research Guard” unless official toll data was injected.
+- The model must not offer to open/check ABRP, PlugShare, VW apps, or other live tools unless such a tool is actually present in context.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.17
+```
+
+Expected tests:
+
+```text
+Ran 71 tests
+OK
+```
+
 ## v0.8.0-beta.16
 
 This beta closes the remaining route-answer wording loopholes.

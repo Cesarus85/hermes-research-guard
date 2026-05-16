@@ -1,3 +1,12 @@
+## 2026-05-16 - Routen-Antwortvorlage erzwingen
+- **Typ:** fix
+- **Problem:** Hermes konnte trotz Guardrails noch unerlaubte Rubriken wie eigene Streckenverlauf-Ketten, Maut-Hinweise, `Plausibler Ladeplan` oder zu starke Kandidatenempfehlungen ausgeben.
+- **Änderung:** Research Guard injiziert jetzt eine verpflichtende Antwortvorlage mit erlaubten Rubriken: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`.
+- **Streckenverlauf:** Eine Streckenverlauf-Rubrik ist nur noch bei ausdrücklicher Nachfrage erlaubt und dann nur als nummerierte Google-Routes-Schritte, nie als eigene Ein-Zeilen-Autobahnkette.
+- **Maut/Tools:** Maut/Vignette darf ohne offizielle Daten nur als `nicht geprüft` erscheinen. ABRP/PlugShare/VW-App dürfen nicht als aufrufbare Live-Tools angeboten werden, wenn kein entsprechendes Tool vorhanden ist.
+- **Version:** Plugin version raised to `0.8.0-beta.17`.
+- **Tests:** Context tests now assert the route answer-template guardrails.
+
 ## 2026-05-16 - Streckenverlauf und Ladeempfehlungen härter begrenzt
 - **Typ:** fix
 - **Problem:** Hermes konnte weiterhin eigene kompakte Autobahnketten, Mautpflicht-Hinweise und zu starke Ladeempfehlungen wie `ideal`, `hohe Verfügbarkeit` oder `der ID.7 lädt hier schnell` formulieren.
