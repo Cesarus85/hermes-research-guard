@@ -23,8 +23,10 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.4"
+__version__ = "0.8.0-beta.5"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
+CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
+PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
 STATUS_RESPONSE_POLICY = {
@@ -231,6 +233,95 @@ def _env_list(name: str) -> list[str]:
 def _env_choice(name: str, default: str, allowed: set[str]) -> str:
     value = os.getenv(name, default).strip().lower()
     return value if value in allowed else default
+
+
+def _read_json_file(path: Path) -> dict[str, Any]:
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        logger.debug("Could not read config file: %s", path, exc_info=True)
+    return {}
+
+
+def _merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_config(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _plugin_config() -> dict[str, Any]:
+    return _merge_config(_read_json_file(PLUGIN_CONFIG_PATH), _read_json_file(CONFIG_PATH))
+
+
+def _config_route_value(name: str, default: Any = None) -> Any:
+    config = _plugin_config()
+    route_config = config.get("route_planning") if isinstance(config.get("route_planning"), dict) else {}
+    if name in route_config:
+        return route_config[name]
+    flat_names = {
+        "enabled": "route_planning_enabled",
+        "google_maps_api_key": "google_maps_api_key",
+        "include_fuel_options": "route_include_fuel_options",
+        "timeout_seconds": "route_timeout_seconds",
+        "max_charger_searches": "route_max_charger_searches",
+        "max_chargers": "route_max_chargers",
+        "max_fuel_stops": "route_max_fuel_stops",
+        "charger_radius_meters": "route_charger_radius_meters",
+    }
+    flat_name = flat_names.get(name)
+    if flat_name and flat_name in config:
+        return config[flat_name]
+    return default
+
+
+def _to_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes", "on", "y"}
+
+
+def _route_bool(name: str, env_name: str, default: bool) -> bool:
+    if os.getenv(env_name) is not None:
+        return _env_bool(env_name, default)
+    return _to_bool(_config_route_value(name, default), default)
+
+
+def _route_int(name: str, env_name: str, default: int, lo: int, hi: int) -> int:
+    if os.getenv(env_name) is not None:
+        return _env_int(env_name, default, lo, hi)
+    try:
+        return max(lo, min(hi, int(_config_route_value(name, default))))
+    except Exception:
+        return default
+
+
+def _masked_secret(value: str) -> str:
+    value = str(value or "")
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "***"
+    return f"{value[:4]}...{value[-4:]}"
+
+
+def _masked_config(config: dict[str, Any]) -> dict[str, Any]:
+    masked = json.loads(json.dumps(config, ensure_ascii=False))
+    route_config = masked.get("route_planning") if isinstance(masked.get("route_planning"), dict) else {}
+    if isinstance(route_config, dict) and route_config.get("google_maps_api_key"):
+        route_config["google_maps_api_key"] = _masked_secret(str(route_config["google_maps_api_key"]))
+    if masked.get("google_maps_api_key"):
+        masked["google_maps_api_key"] = _masked_secret(str(masked["google_maps_api_key"]))
+    return masked
 
 
 def _is_local_or_small_model(model: str | None, provider: str | None = None) -> bool:
@@ -840,15 +931,19 @@ def _source_summaries(results: list[dict[str, Any]], limit: int = 5) -> list[dic
 
 
 def _route_api_key() -> str:
-    return (os.getenv("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY") or "").strip()
+    return (
+        os.getenv("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY")
+        or os.getenv("GOOGLE_MAPS_API_KEY")
+        or str(_config_route_value("google_maps_api_key", "") or "")
+    ).strip()
 
 
 def _route_planning_enabled() -> bool:
-    return _env_bool("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", False)
+    return _route_bool("enabled", "RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", False)
 
 
 def _route_timeout_seconds() -> int:
-    return _env_int("RESEARCH_GUARD_ROUTE_TIMEOUT", 8, 2, 30)
+    return _route_int("timeout_seconds", "RESEARCH_GUARD_ROUTE_TIMEOUT", 8, 2, 30)
 
 
 def _is_route_planning_prompt(message: str) -> bool:
@@ -1016,7 +1111,7 @@ def _google_places_nearby(
     place_type: str,
     extra_fields: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    radius = _env_int("RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000)
+    radius = _route_int("charger_radius_meters", "RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000)
     fields = [
         "places.displayName",
         "places.formattedAddress",
@@ -1048,7 +1143,7 @@ def _google_places_nearby_ev_chargers(point: dict[str, float], api_key: str, lim
 
 
 def _google_places_nearby_fuel_stations(point: dict[str, float], api_key: str, limit: int) -> list[dict[str, Any]]:
-    fields = ["places.fuelOptions"] if _env_bool("RESEARCH_GUARD_ROUTE_INCLUDE_FUEL_OPTIONS", False) else []
+    fields = ["places.fuelOptions"] if _route_bool("include_fuel_options", "RESEARCH_GUARD_ROUTE_INCLUDE_FUEL_OPTIONS", False) else []
     return _google_places_nearby(point, api_key, limit, "gas_station", fields)
 
 
@@ -1126,9 +1221,9 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
     route = routes[0]
     polyline = ((route.get("polyline") or {}).get("encodedPolyline") or "")
     points = _decode_polyline(polyline)
-    sample_count = _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5)
-    charger_limit = _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12)
-    fuel_limit = _env_int("RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS", 6, 1, 12)
+    sample_count = _route_int("max_charger_searches", "RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5)
+    charger_limit = _route_int("max_chargers", "RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12)
+    fuel_limit = _route_int("max_fuel_stops", "RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS", 6, 1, 12)
     warnings: list[str] = []
     chargers: list[dict[str, Any]] = []
     fuel_stops: list[dict[str, Any]] = []
@@ -2530,11 +2625,14 @@ def _config_snapshot() -> dict[str, Any]:
             "api_key_configured": bool(_route_api_key()),
             "timeout_seconds": _route_timeout_seconds(),
             "persistent_cache": False,
-            "max_charger_searches": _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5),
-            "max_chargers": _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12),
-            "max_fuel_stops": _env_int("RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS", 6, 1, 12),
-            "charger_radius_meters": _env_int("RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000),
-            "include_fuel_options": _env_bool("RESEARCH_GUARD_ROUTE_INCLUDE_FUEL_OPTIONS", False),
+            "config_path": str(CONFIG_PATH),
+            "plugin_config_path": str(PLUGIN_CONFIG_PATH),
+            "config_file_present": CONFIG_PATH.exists() or PLUGIN_CONFIG_PATH.exists(),
+            "max_charger_searches": _route_int("max_charger_searches", "RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5),
+            "max_chargers": _route_int("max_chargers", "RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12),
+            "max_fuel_stops": _route_int("max_fuel_stops", "RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS", 6, 1, 12),
+            "charger_radius_meters": _route_int("charger_radius_meters", "RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000),
+            "include_fuel_options": _route_bool("include_fuel_options", "RESEARCH_GUARD_ROUTE_INCLUDE_FUEL_OPTIONS", False),
         },
     }
 
@@ -2632,6 +2730,83 @@ def research_guard_status(args: dict, **kwargs) -> str:
                 "Injected Research Guard context is ephemeral in Hermes. "
                 "Use this status to explain whether the previous factual answer used Research Guard sources."
             ),
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def research_guard_config(args: dict, **kwargs) -> str:
+    """Manual tool: view or update persistent Research Guard plugin config."""
+    del kwargs
+    action = str(args.get("action") or "show").strip().lower()
+    config = _read_json_file(CONFIG_PATH)
+    route_config = config.get("route_planning") if isinstance(config.get("route_planning"), dict) else {}
+    route_config = dict(route_config)
+    changed = False
+
+    if action in {"set_route_planning", "set", "update"}:
+        field_map = {
+            "enabled": ("enabled", None),
+            "route_planning_enabled": ("enabled", None),
+            "google_maps_api_key": ("google_maps_api_key", None),
+            "api_key": ("google_maps_api_key", None),
+            "include_fuel_options": ("include_fuel_options", None),
+            "max_charger_searches": ("max_charger_searches", (1, 5)),
+            "max_chargers": ("max_chargers", (1, 12)),
+            "max_fuel_stops": ("max_fuel_stops", (1, 12)),
+            "charger_radius_meters": ("charger_radius_meters", (1000, 50000)),
+            "timeout_seconds": ("timeout_seconds", (2, 30)),
+        }
+        for input_key, (config_key, bounds) in field_map.items():
+            if input_key not in args or args.get(input_key) is None:
+                continue
+            value = args.get(input_key)
+            if config_key in {"enabled", "include_fuel_options"}:
+                route_config[config_key] = _to_bool(value, False)
+            elif config_key == "google_maps_api_key":
+                route_config[config_key] = str(value).strip()
+            elif bounds:
+                lo, hi = bounds
+                try:
+                    route_config[config_key] = max(lo, min(hi, int(value)))
+                except Exception:
+                    continue
+            changed = True
+        config["route_planning"] = route_config
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    elif action not in {"show", "view", "status"}:
+        return json.dumps(
+            {
+                "error": "unsupported action",
+                "supported_actions": ["show", "set_route_planning"],
+                "config_path": str(CONFIG_PATH),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    return json.dumps(
+        {
+            "plugin": "research-guard",
+            "version": __version__,
+            "config_path": str(CONFIG_PATH),
+            "plugin_config_path": str(PLUGIN_CONFIG_PATH),
+            "changed": changed,
+            "effective_route_planning": {
+                "enabled": _route_planning_enabled(),
+                "api_key_configured": bool(_route_api_key()),
+                "api_key_preview": _masked_secret(_route_api_key()),
+                "include_fuel_options": _route_bool("include_fuel_options", "RESEARCH_GUARD_ROUTE_INCLUDE_FUEL_OPTIONS", False),
+                "max_charger_searches": _route_int("max_charger_searches", "RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5),
+                "max_chargers": _route_int("max_chargers", "RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12),
+                "max_fuel_stops": _route_int("max_fuel_stops", "RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS", 6, 1, 12),
+                "charger_radius_meters": _route_int("charger_radius_meters", "RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000),
+                "timeout_seconds": _route_timeout_seconds(),
+            },
+            "stored_config": _masked_config(config),
+            "note": "Values in environment variables override config-file values when they are set. The API key is stored in plaintext in the local Hermes config file and masked in this output.",
         },
         ensure_ascii=False,
         indent=2,
@@ -2800,6 +2975,25 @@ DIAGNOSTICS_TOOL_SCHEMA = {
     "description": "Alias for research_guard_status. Show Research Guard diagnostics only: decisions, categories, visible effects, query debug, source quality, config snapshot, and cache stats.",
 }
 
+CONFIG_TOOL_SCHEMA = {
+    "name": "research_guard_config",
+    "description": "View or update persistent Research Guard plugin config, including optional Google Maps route planning. Stores config in ~/.hermes/research-guard.json; do not use plugin.yaml for secrets.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "description": "show or set_route_planning", "default": "show"},
+            "enabled": {"type": "boolean", "description": "Enable or disable optional route planning"},
+            "google_maps_api_key": {"type": "string", "description": "Google Maps Platform API key for Routes API and Places API (New)"},
+            "include_fuel_options": {"type": "boolean", "description": "Opt-in only: request fuelOptions fields from Places"},
+            "max_charger_searches": {"type": "integer", "description": "Sampled route points for stop searches, 1-5"},
+            "max_chargers": {"type": "integer", "description": "Maximum EV charger candidates, 1-12"},
+            "max_fuel_stops": {"type": "integer", "description": "Maximum fuel-stop candidates, 1-12"},
+            "charger_radius_meters": {"type": "integer", "description": "Nearby-search radius for route stop candidates, 1000-50000"},
+            "timeout_seconds": {"type": "integer", "description": "Google request timeout, 2-30 seconds"},
+        },
+    },
+}
+
 
 def register(ctx):
     ctx.register_hook("pre_llm_call", pre_llm_research_guard)
@@ -2825,5 +3019,13 @@ def register(ctx):
         schema=DIAGNOSTICS_TOOL_SCHEMA,
         handler=research_guard_status,
         emoji="🧭",
+        max_result_size_chars=50_000,
+    )
+    ctx.register_tool(
+        name="research_guard_config",
+        toolset="research_guard",
+        schema=CONFIG_TOOL_SCHEMA,
+        handler=research_guard_config,
+        emoji="⚙️",
         max_result_size_chars=50_000,
     )

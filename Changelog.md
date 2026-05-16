@@ -1,3 +1,12 @@
+## 2026-05-16 - Plugin-eigene Route-Planning-Konfiguration ergänzt
+- **Typ:** usability
+- **Feature:** Neues Tool `research_guard_config` ergänzt, damit Hermes Research Guard dauerhaft konfigurieren kann, ohne dass Nutzer systemd-, Shell- oder Gateway-Environment-Dateien finden müssen.
+- **Config:** Research Guard liest jetzt `~/.hermes/research-guard.json` und optional `research-guard/config.json`; Environment-Variablen bleiben als Override erhalten.
+- **Sicherheit:** API-Key wird in Tool-/Statusausgaben maskiert. Hinweis: lokal wird er in der Hermes-Konfigurationsdatei im Klartext gespeichert.
+- **Doku:** README und Release Notes beschreiben die einfache Hermes-Anweisung zur Aktivierung.
+- **Version:** Plugin version raised to `0.8.0-beta.5`.
+- **Tests:** Test suite expanded from 50 to 52 dependency-free tests.
+
 ## 2026-05-16 - Tankstopp-Kandidaten für Routenplanung ergänzt
 - **Typ:** feature
 - **Feature:** Optionales Google-Maps-Route-Planning berücksichtigt jetzt neben EV-Ladepunkten auch Tankstopp-Kandidaten über Places `gas_station`.

@@ -1,0 +1,12 @@
+{
+  "route_planning": {
+    "enabled": false,
+    "google_maps_api_key": "",
+    "include_fuel_options": false,
+    "max_charger_searches": 3,
+    "max_chargers": 6,
+    "max_fuel_stops": 6,
+    "charger_radius_meters": 8000,
+    "timeout_seconds": 8
+  }
+}

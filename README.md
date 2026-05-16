@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.4`
+**Beta release:** `v0.8.0-beta.5`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -27,6 +27,7 @@ What is considered beta-stable:
 - optional Google Maps route context for rough route, traffic-duration, EV charging-station, and fuel-stop prompts
 - context follow-up handling for questions such as "Where did you get that from?" or "What do you think about it?"
 - `research_guard_status` and `research_guard_diagnostics` diagnostics
+- `research_guard_config` for persistent plugin configuration without editing service environment variables
 - compact status explanations showing why Research Guard ran or skipped
 - tests passing locally
 
@@ -80,7 +81,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.4
+version: 0.8.0-beta.5
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -117,7 +118,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.4
+version: 0.8.0-beta.5
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -165,7 +166,37 @@ Quellen (Research Guard): <url 1>, <url 2>
 
 ## Configuration
 
-Optional environment variables:
+Research Guard can be configured in two ways:
+
+1. Preferred for normal Hermes use: `research_guard_config`, which writes `~/.hermes/research-guard.json`.
+2. Optional advanced override: environment variables.
+
+To enable route planning through Hermes, ask the local model to call the config tool:
+
+```text
+Use research_guard_config to enable route planning.
+Set google_maps_api_key to <your-google-maps-platform-key>.
+Keep include_fuel_options false.
+```
+
+The persistent config file looks like this:
+
+```json
+{
+  "route_planning": {
+    "enabled": true,
+    "google_maps_api_key": "your-google-maps-platform-key",
+    "include_fuel_options": false,
+    "max_charger_searches": 3,
+    "max_chargers": 6,
+    "max_fuel_stops": 6,
+    "charger_radius_meters": 8000,
+    "timeout_seconds": 8
+  }
+}
+```
+
+Environment variables are still supported and override config-file values when set:
 
 | Variable | Default | Description |
 |---|---:|---|
@@ -240,7 +271,13 @@ Cache keys include provider, result count, deep-fetch profile, and normalized qu
 
 Hermes Research Guard can optionally use Google Maps Platform as a specialized datasource for route, traffic-duration, EV charging, and fuel-stop prompts. This is disabled by default because Google Maps Platform requires an API key and a billing-enabled project.
 
-Enable it only after setting quotas or budgets in Google Cloud:
+Enable it only after setting quotas or budgets in Google Cloud. The easiest path is the plugin config tool:
+
+```text
+Use research_guard_config with action set_route_planning, enabled true, and google_maps_api_key <your-key>.
+```
+
+Advanced service-level configuration is still possible through environment variables:
 
 ```bash
 export RESEARCH_GUARD_ENABLE_ROUTE_PLANNING=true

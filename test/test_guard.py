@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -1097,6 +1098,105 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(status["config"]["route_planning"]["provider"], "google-maps")
         self.assertFalse(status["config"]["route_planning"]["persistent_cache"])
         self.assertFalse(status["config"]["route_planning"]["include_fuel_options"])
+
+    def test_route_planning_reads_persistent_config_without_env(self):
+        old_config_path = guard.CONFIG_PATH
+        old_plugin_config_path = guard.PLUGIN_CONFIG_PATH
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        old_key = os.environ.get("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY")
+        old_google_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                config_path = Path(tmp) / "research-guard.json"
+                config_path.write_text(
+                    json.dumps(
+                        {
+                            "route_planning": {
+                                "enabled": True,
+                                "google_maps_api_key": "test-google-key",
+                                "include_fuel_options": True,
+                                "max_fuel_stops": 4,
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                guard.CONFIG_PATH = config_path
+                guard.PLUGIN_CONFIG_PATH = Path(tmp) / "missing-plugin-config.json"
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+                os.environ.pop("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY", None)
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+
+                status = json.loads(guard.research_guard_status({"limit": 1}))
+        finally:
+            guard.CONFIG_PATH = old_config_path
+            guard.PLUGIN_CONFIG_PATH = old_plugin_config_path
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+            if old_key is None:
+                os.environ.pop("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["RESEARCH_GUARD_GOOGLE_MAPS_API_KEY"] = old_key
+            if old_google_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_google_key
+
+        self.assertTrue(status["config"]["route_planning"]["enabled"])
+        self.assertTrue(status["config"]["route_planning"]["api_key_configured"])
+        self.assertTrue(status["config"]["route_planning"]["include_fuel_options"])
+        self.assertEqual(status["config"]["route_planning"]["max_fuel_stops"], 4)
+
+    def test_config_tool_writes_persistent_route_config_and_masks_key(self):
+        old_config_path = guard.CONFIG_PATH
+        old_plugin_config_path = guard.PLUGIN_CONFIG_PATH
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        old_key = os.environ.get("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY")
+        old_google_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                guard.CONFIG_PATH = Path(tmp) / "research-guard.json"
+                guard.PLUGIN_CONFIG_PATH = Path(tmp) / "missing-plugin-config.json"
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+                os.environ.pop("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY", None)
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+
+                payload = json.loads(
+                    guard.research_guard_config(
+                        {
+                            "action": "set_route_planning",
+                            "enabled": True,
+                            "google_maps_api_key": "abcd1234secret",
+                            "include_fuel_options": False,
+                            "max_charger_searches": 2,
+                        }
+                    )
+                )
+                stored = json.loads(guard.CONFIG_PATH.read_text(encoding="utf-8"))
+        finally:
+            guard.CONFIG_PATH = old_config_path
+            guard.PLUGIN_CONFIG_PATH = old_plugin_config_path
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+            if old_key is None:
+                os.environ.pop("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["RESEARCH_GUARD_GOOGLE_MAPS_API_KEY"] = old_key
+            if old_google_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_google_key
+
+        self.assertTrue(payload["changed"])
+        self.assertTrue(payload["effective_route_planning"]["enabled"])
+        self.assertTrue(payload["effective_route_planning"]["api_key_configured"])
+        self.assertNotIn("abcd1234secret", json.dumps(payload))
+        self.assertEqual(stored["route_planning"]["google_maps_api_key"], "abcd1234secret")
+        self.assertEqual(stored["route_planning"]["max_charger_searches"], 2)
 
 
 if __name__ == "__main__":

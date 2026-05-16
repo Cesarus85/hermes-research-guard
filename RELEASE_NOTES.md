@@ -1,5 +1,65 @@
 # Release Notes
 
+## v0.8.0-beta.5
+
+This beta makes optional route planning much easier to enable in Hermes. Operators no longer need to place environment variables in the correct gateway start context.
+
+### New
+
+- Added `research_guard_config`, a Hermes tool for viewing and updating persistent Research Guard config.
+- Added persistent config file support at `~/.hermes/research-guard.json`.
+- Added plugin-local config fallback support via `research-guard/config.json`.
+- Added `research-guard/config.example.json`.
+- Route planning can now be enabled by asking Hermes to call `research_guard_config` with `enabled=true` and a Google Maps Platform key.
+- `research_guard_status` now reports route config paths and whether a config file is present.
+
+### Simple Route Planning Setup
+
+Ask Hermes:
+
+```text
+Use research_guard_config to enable route planning.
+Set google_maps_api_key to <your-google-maps-platform-key>.
+Keep include_fuel_options false.
+```
+
+Then verify:
+
+```text
+research_guard_status
+```
+
+Expected route-planning status:
+
+```json
+{
+  "enabled": true,
+  "api_key_configured": true
+}
+```
+
+Environment variables remain supported and override file config when set.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.5
+```
+
+Expected tests:
+
+```text
+Ran 52 tests
+OK
+```
+
 ## v0.8.0-beta.4
 
 This beta extends optional Google Maps route planning with fuel-stop candidates. The plugin remains a **Hermes Agent plugin only**; there is no standalone runtime or standalone installation path.
