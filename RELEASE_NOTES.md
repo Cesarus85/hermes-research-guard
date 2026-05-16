@@ -1,8 +1,8 @@
 # Release Notes
 
-## v0.8.0-beta.1
+## v0.8.0-beta.2
 
-This is the first public beta candidate for Hermes Research Guard.
+This is the second public beta candidate for Hermes Research Guard. It clarifies the project scope: this repository contains a **Hermes Agent plugin**, not a standalone application.
 
 ### Highlights
 
@@ -19,9 +19,24 @@ This is the first public beta candidate for Hermes Research Guard.
 - Compact status explanations via `reason_summary`, `visible_effect_summary`, and `user_explanation`.
 - Privacy boundaries for local infrastructure, personal context, files, terminal, coding, memory, notes, and calendar prompts.
 
-### Installation
+### Installation Scope
 
-Install with Hermes:
+Hermes Research Guard requires Hermes Agent with plugin support. There are two supported installation paths:
+
+1. Hermes-initiated installation from this GitHub repository.
+2. Manual command-line installation into the Hermes plugin directory.
+
+There is no standalone installation path for this variant.
+
+### Hermes-Initiated Installation
+
+If your Hermes setup supports installing or updating plugins from a GitHub repository, give Hermes this repository URL and ask it to install or replace the `research-guard` plugin:
+
+```text
+https://github.com/Cesarus85/hermes-research-guard
+```
+
+### Manual Command-Line Installation
 
 ```bash
 git clone https://github.com/Cesarus85/hermes-research-guard.git
@@ -32,16 +47,6 @@ hermes plugins enable research-guard
 hermes gateway restart
 ```
 
-Use without Hermes:
-
-```bash
-git clone https://github.com/Cesarus85/hermes-research-guard.git
-cd hermes-research-guard
-python3 -m unittest discover -s test -p 'test_*.py'
-```
-
-Then import `research-guard/__init__.py` from your host application and call `research_guard_search(...)` manually or `pre_llm_research_guard(...)` before model inference.
-
 ### Known Beta Limitations
 
 - Research Guard improves grounding, but it cannot guarantee truth.
@@ -50,6 +55,7 @@ Then import `research-guard/__init__.py` from your host application and call `re
 - High-stakes medical/legal/financial/safety mode is not finished.
 - Hermes injects plugin context into the current user message rather than the system prompt.
 - No-research boundaries are opt-in because some local model UIs expose injected skip context as visible reasoning.
+- Hermes Agent is required; this variant is not a standalone Research Guard runtime.
 
 ### Verification
 
@@ -61,7 +67,7 @@ python3 -m unittest discover -s test -p 'test_*.py'
 Expected plugin version:
 
 ```text
-version: 0.8.0-beta.1
+version: 0.8.0-beta.2
 ```
 
 Expected tests:

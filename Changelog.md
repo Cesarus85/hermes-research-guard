@@ -1,7 +1,14 @@
+## 2026-05-16 - Clarify Hermes-only beta scope
+- **Type:** beta/docs
+- **Change:** README and release notes now clearly state that this project is a Hermes Agent plugin and requires Hermes.
+- **Install docs:** Removed the misleading standalone/non-Hermes installation path.
+- **Install docs:** Documented the two supported paths: Hermes-initiated installation from the GitHub repository and manual command-line installation into the Hermes plugin directory.
+- **Version:** Plugin version raised to `0.8.0-beta.2`.
+
 ## 2026-05-16 - First beta repository preparation
 - **Type:** beta/release-prep
 - **Change:** README has been rewritten in English as a beta-facing project overview.
-- **Install docs:** Added explicit installation instructions for Hermes and standalone/non-Hermes usage.
+- **Install docs:** Added explicit installation instructions for Hermes usage.
 - **Beta scope:** Added beta status, known limitations, quick verification, configuration, provider chain, source-quality behavior, privacy boundaries, and roadmap notes.
 - **Release notes:** Added `RELEASE_NOTES.md` for `v0.8.0-beta.1`.
 - **Version:** Plugin version raised to `0.8.0-beta.1`.

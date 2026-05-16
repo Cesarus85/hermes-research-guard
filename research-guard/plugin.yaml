@@ -1,6 +1,6 @@
 name: research-guard
-version: 0.8.0-beta.1
-description: "Pre-LLM web research guard for local/small models. Injects compact search context for factual/general-knowledge questions before the model answers."
+version: 0.8.0-beta.2
+description: "Hermes Agent plugin that injects compact web research context before local/small models answer factual or current-information questions."
 author: Iris / Stefan
 provides_hooks:
   - pre_llm_call

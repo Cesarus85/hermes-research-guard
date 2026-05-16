@@ -1,14 +1,19 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.1`
+**Beta release:** `v0.8.0-beta.2`
 
-Hermes Research Guard is a lightweight pre-answer research plugin for local and small LLM setups. It runs a web search before the model answers factual or current-information questions, ranks the sources, and injects a compact evidence block into the current prompt.
+Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
-It is designed for agents using models such as Qwen, Llama, Mistral, Gemma, Phi, Ollama-hosted models, LM Studio, vLLM, TGI, llama.cpp, MLX, or other local providers that reason well but may lack fresh facts.
+This package is **not a standalone application** and is not meant to be installed independently of Hermes. It requires a Hermes Agent installation with plugin support. The two supported installation paths are:
+
+1. Hermes-initiated installation from this GitHub repository.
+2. Manual command-line installation into the Hermes plugin directory.
+
+It is designed for Hermes setups using models such as Qwen, Llama, Mistral, Gemma, Phi, Ollama-hosted models, LM Studio, vLLM, TGI, llama.cpp, MLX, or other local providers that reason well but may lack fresh facts.
 
 ## Beta Status
 
-This repository is ready for a first public beta. The core behavior is implemented and covered by dependency-free tests, but the project should still be treated as experimental in production-like agent setups.
+This repository is ready for a first public beta of the Hermes Agent plugin. The core behavior is implemented and covered by dependency-free tests, but the plugin should still be treated as experimental in production-like Hermes setups.
 
 What is considered beta-stable:
 
@@ -32,6 +37,7 @@ Known beta limitations:
 - High-stakes handling for medical, legal, financial, and safety-critical prompts is not finished.
 - Hermes injects plugin context into the current user message, not the system prompt.
 - The no-research boundary is disabled by default because some local model UIs expose injected skip-context as visible reasoning.
+- There is no standalone runtime; Hermes is required for automatic operation.
 
 ## How It Works
 
@@ -50,9 +56,33 @@ Research Guard registers a Hermes `pre_llm_call` hook. For each user message it:
 
 The plugin intentionally does not modify the system prompt.
 
-## Install With Hermes
+## Installation
 
-Fresh install from GitHub:
+Research Guard is a Hermes Agent plugin. Do not install it as a generic Python package. Install it either through Hermes itself or manually into Hermes' plugin directory.
+
+### Option 1: Hermes-Initiated Install
+
+If your Hermes setup supports installing or updating plugins from a GitHub repository, give Hermes this repository URL and ask it to install or replace the `research-guard` plugin:
+
+```text
+https://github.com/Cesarus85/hermes-research-guard
+```
+
+After Hermes finishes the installation, restart the Hermes gateway if your setup does not do that automatically, then verify the installed manifest:
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+```
+
+Expected:
+
+```text
+version: 0.8.0-beta.2
+```
+
+### Option 2: Manual Command-Line Install
+
+Fresh manual install from GitHub:
 
 ```bash
 git clone https://github.com/Cesarus85/hermes-research-guard.git
@@ -63,7 +93,7 @@ hermes plugins enable research-guard
 hermes gateway restart
 ```
 
-Update an existing Hermes installation:
+Manual update of an existing Hermes installation:
 
 ```bash
 git clone https://github.com/Cesarus85/hermes-research-guard.git /tmp/hermes-research-guard
@@ -84,7 +114,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.1
+version: 0.8.0-beta.2
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -94,59 +124,6 @@ plugins:
   enabled:
     - research-guard
 ```
-
-## Install Without Hermes
-
-Research Guard can also be used without Hermes as a standalone Python module or as a reference implementation for another agent runtime. In this mode there is no automatic pre-LLM hook unless your host application calls it.
-
-Clone and test:
-
-```bash
-git clone https://github.com/Cesarus85/hermes-research-guard.git
-cd hermes-research-guard
-python3 -m unittest discover -s test -p 'test_*.py'
-```
-
-Run a manual search from Python:
-
-```bash
-python3 - <<'PY'
-import importlib.util
-import json
-from pathlib import Path
-
-module_path = Path("research-guard") / "__init__.py"
-spec = importlib.util.spec_from_file_location("research_guard_plugin", module_path)
-guard = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(guard)
-
-payload = guard.research_guard_search({
-    "query": "latest Python version release notes",
-    "limit": 3,
-    "deep_fetch": False,
-})
-print(payload)
-PY
-```
-
-Use the pre-LLM hook from another runtime:
-
-```python
-result = guard.pre_llm_research_guard(
-    session_id="example-session",
-    user_message="Which Python version is current?",
-    model="qwen3",
-    platform="ollama",
-    conversation_history=[],
-)
-
-if result and result.get("context"):
-    user_message_for_model = result["context"] + "\n\n" + original_user_message
-else:
-    user_message_for_model = original_user_message
-```
-
-Standalone mode is useful for testing the heuristics, source scoring, provider chain, and status output. For full automatic behavior you need Hermes or another host that calls `pre_llm_research_guard` before model inference.
 
 ## Quick Verification
 
