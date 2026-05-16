@@ -1,6 +1,6 @@
 # Hermes Research Guard Roadmap
 
-Stand: 2026-05-10
+Stand: 2026-05-16
 
 This roadmap tracks which features from `Cesarus85/openclaw-research-guard` can be brought into `Cesarus85/hermes-research-guard`, and where Hermes requires a different implementation.
 
@@ -47,6 +47,7 @@ Hermes also makes injected `pre_llm_call` context ephemeral, so it is not persis
 | Context/opinion follow-up guard | `[x]` | Short prompts such as "Was hältst du davon?" and impression prompts such as "Wie ist dein Eindruck von meiner Heimatstadt?" reuse the last Research Guard topic instead of searching the literal phrase. |
 | Follow-up subject carryover | `[x]` | v0.4.0 carries prior subjects from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative search queries. |
 | Structured deep fetch | `[x]` | v0.6.1 fetches readable top-source excerpts in parallel and extracts simple structured tracklist candidates. |
+| Optional Google Maps route datasource | `[x]` | v0.8 beta adds opt-in Google Routes/Places context for driving routes, EV charger candidates, fuel-stop candidates, route follow-ups, diagnostics, and strict candidate-only answer guardrails. |
 | Source quality scoring | `[x]` | v0.7.2 includes explicit query/source profiles for official docs, government/municipal pages, vendor/project pages, package registries, release notes, pricing, standards, reference pages, and weak-source demotion. |
 | Confidence gating | `[x]` | v0.3.0 adds `RESEARCH_GUARD_MIN_CONFIDENCE`, usable counts, and multiple-source downgrade support. |
 | Preferred domains | `[x]` | `RESEARCH_GUARD_PREFERRED_DOMAINS` boosts trusted domains. |
@@ -224,12 +225,41 @@ Goal: make future changes safe.
 - [ ] ADAPT Add integration smoke test for Hermes `pre_llm_call` context injection if a stable test harness exists.
 - [ ] ADAPT Add GitHub Actions lint/test workflow once the project has a test runner.
 
+## v0.13 - Route Planning Beta Hardening
+
+Goal: make optional Google Maps route context useful for Hermes users without pretending to be a full navigation, ABRP, EV, or fuel planner.
+
+- [x] Add opt-in Google Maps Platform route datasource.
+- [x] Support one Google Maps Platform key for Routes API and Places API (New).
+- [x] Add persistent Hermes-side route configuration through `research_guard_config`.
+- [x] Add `research_guard_route_test` to validate the Google API key and route payload directly.
+- [x] Trigger route planning for clear driving-route prompts even without explicit charging or fuel wording.
+- [x] Detect EV context from battery, charging, EV model, and `kWh` wording.
+- [x] Fetch EV charging-station candidates only when EV/charging context is present.
+- [x] Fetch fuel-stop candidates only when fuel/tank-stop context is present.
+- [x] Balance stop candidates across sampled route points so start-area results do not crowd out along-route candidates.
+- [x] Add approximate candidate route positions such as start area, early route, middle route, and late route.
+- [x] Add EV energy plausibility math for battery-size prompts.
+- [x] Store the last route snapshot for route follow-ups.
+- [x] Refresh Google Routes/Places for return/reverse or explicit recalculation follow-ups.
+- [x] Expose detailed Google Routes steps only for explicit route-course questions.
+- [x] Derive a compact `Geprüfte Verlaufskette` mechanically from Google Routes steps.
+- [x] Require compact route chains to be labeled `Geprüfte Verlaufskette: ...`.
+- [x] Distinguish Google `duration` from `staticDuration` without calling static duration `typisch`.
+- [x] Add strict guardrails against invented stop order, segment distances, SoC curves, charge times, live availability, prices, tolls, vignette costs, amenities, and route geography.
+- [x] Document the route answer contract and example prompts in the README.
+- [ ] ADAPT Replace ambiguous candidate wording such as `stärker belegter Kandidat`, because German readers can interpret `belegt` as occupied. Prefer clearer wording such as `besser dokumentierter Kandidat` or `Kandidat mit bestätigten Connector-Daten`.
+- [ ] ADAPT Tighten coarse-location wording so Hermes avoids unsupported phrases such as `liegt günstig auf der Route`; prefer `liegt an einem groben Suchpunkt entlang der Route` or `wurde an einem Route-Sample gefunden`.
+- [ ] CHECK Evaluate whether Places candidate sampling should expose route detour distance when Google APIs can provide it cheaply and within policy.
+- [ ] CHECK Evaluate a future optional optimizer mode for simple stop sequencing only if it can calculate segment distances, minimum SoC assumptions, and vehicle limits transparently.
+
 ## v1.0 - Documentation And Distribution
 
 Goal: make the plugin installable, understandable, and safe to operate.
 
-- [ ] ADAPT Update README with Hermes-specific architecture notes.
-- [ ] ADAPT Document that Hermes injects plugin context into the user message, not system prompt.
+- [x] ADAPT Update README with Hermes-specific architecture notes.
+- [x] ADAPT Document that Hermes injects plugin context into the user message, not system prompt.
+- [x] ADAPT Document optional Google Maps route planning, route answer contract, limitations, diagnostics, and examples.
 - [ ] PORT Add example configs for local-only, voice/STT, stricter citation-first, and gateway-heavy setups.
 - [ ] PORT Add troubleshooting for provider keys, plugin enablement, gateway restart, and model detection.
 - [ ] PORT Add demo script: current fact, local-infra skip, status output.

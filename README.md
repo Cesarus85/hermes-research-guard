@@ -44,6 +44,68 @@ Known beta limitations:
 - There is no standalone runtime; Hermes is required for automatic operation.
 - Optional Google Maps route planning is not a full EV/fuel planner and does not guarantee charger availability, fuel availability, prices, optimal stops, or vehicle-specific charge/fuel times.
 
+## Route Planning At A Glance
+
+Hermes Research Guard can optionally use Google Maps Platform as a route datasource for local Hermes models. It is meant to give Hermes grounded route facts and nearby stop candidates, not to replace a dedicated navigation, EV charging, or fuel-planning app.
+
+What it can add:
+
+- driving distance and Google Routes travel-time data
+- a compact `Geprüfte Verlaufskette` derived from Google Routes steps
+- EV charging-station candidates near sampled route points when the prompt mentions EV, battery, charging, or similar context
+- fuel-stop candidates when the prompt asks for tank stops, gas stations, or fuel planning
+- rough EV energy plausibility math when the prompt includes a battery size
+- follow-up context for questions about the same route
+
+What it intentionally does not claim:
+
+- no optimized ABRP-style stop order
+- no exact state-of-charge curve
+- no guaranteed live charger or fuel availability
+- no exact charging time, refueling time, price, or vehicle-specific charging curve
+- no toll, vignette, pass, or elevation facts unless official data is explicitly injected
+
+Example prompts:
+
+```text
+Plane mir die Route von Forchheim nach Riva del Garda.
+```
+
+```text
+Plane mir die Route von Forchheim nach Riva del Garda. Ich fahre mit einem VW ID.7 mit 77 kWh Batterie. Plane Ladepunkt-Kandidaten mit ein.
+```
+
+```text
+Plane die Strecke von Forchheim nach Hamburg mit Tankstopps.
+```
+
+```text
+Wie ist der Streckenverlauf?
+```
+
+Expected answer shape for route/charging prompts:
+
+```text
+Route
+Energie-Check
+Ladepunkt-Kandidaten
+Grobe Einordnung
+Nicht von Research Guard geprüft
+Datenquelle (Research Guard): Google Maps Platform Routes/Places
+```
+
+Travel-time wording:
+
+- `duration` is shown as travel time with current traffic conditions.
+- `staticDuration` is shown as static Google duration without current traffic conditions.
+- `staticDuration` should not be described as "typical" travel time.
+
+Candidate wording:
+
+- Candidates may be grouped by rough route position, for example start area, early route, middle route, and late route.
+- A compact route chain must be labeled `Geprüfte Verlaufskette: ...`.
+- The model should say `plausibel zu prüfen` or `zu prüfen`, not `ideal`, `best`, `recommended`, or `first/second stop`, unless a future optimizer actually calculates such a plan.
+
 ## How It Works
 
 Research Guard registers a Hermes `pre_llm_call` hook. For each user message it:
@@ -273,6 +335,8 @@ Cache keys include provider, result count, deep-fetch profile, and normalized qu
 
 Hermes Research Guard can optionally use Google Maps Platform as a specialized datasource for route, traffic-duration, EV charging, and fuel-stop prompts. This is disabled by default because Google Maps Platform requires an API key and a billing-enabled project.
 
+This feature is part of the Hermes plugin. It is not a standalone route planner and it is not a standalone install path. It only works when Hermes loads the Research Guard plugin and the route-planning datasource is enabled.
+
 Enable it only after setting quotas or budgets in Google Cloud. The easiest path is the plugin config tool:
 
 ```text
@@ -294,11 +358,78 @@ The feature currently uses:
 - Places API Nearby Search for `electric_vehicle_charging_station` candidates near sampled route points
 - Places API Nearby Search for `gas_station` candidates near sampled route points
 
-It intentionally injects guardrails into Hermes: the model is told to treat the result as a rough route and stop-candidate basis, not as a guaranteed EV or fuel planner. It must not invent exact state-of-charge curves, charger availability, fuel availability, prices, or charge/refuel times unless the user supplied enough vehicle data and the source data actually supports it.
+It intentionally injects guardrails into Hermes: the model is told to treat the result as a rough route and stop-candidate basis, not as a guaranteed EV or fuel planner. It must not invent exact state-of-charge curves, charger availability, fuel availability, prices, segment distances, first/second stop order, toll costs, or charge/refuel times unless the source data actually supports it.
 
 Route/Places payloads are not written to Research Guard's persistent web-search cache. This keeps the Hermes plugin conservative with Google Maps Platform caching and storage policies. Cost control comes from explicit opt-in, per-request timeouts, a small number of sampled route points, capped EV charger candidates, capped fuel-stop candidates, and opt-in-only fuel price fields.
 
 Stop candidates are balanced across sampled route points before they are injected. If Google only returns candidates from one sampled route area, Research Guard tells the model to say that explicitly and not to supplement missing along-route stops from training knowledge.
+
+### Route Answer Contract
+
+For normal route and charging prompts, the injected context asks Hermes to use only these sections:
+
+```text
+Route
+Energie-Check
+Ladepunkt-Kandidaten
+Grobe Einordnung
+Nicht von Research Guard geprüft
+Datenquelle
+```
+
+The route section may include start, destination, total distance, current-traffic travel time, static Google duration, and a `Geprüfte Verlaufskette`. Compact route chains must use that exact label so they are visibly sourced from Research Guard rather than free model knowledge.
+
+The stop sections should use candidate language:
+
+```text
+IONITY Vaterstetten has confirmed CCS connector data and is plausibel zu prüfen.
+OMV Hall in Tirol has no connector/power data in the context, so it should be checked before relying on it.
+```
+
+The model should not turn candidates into an optimized itinerary:
+
+```text
+Stop 1: ...
+Stop 2: ...
+This will get you there.
+```
+
+### Example Route Output
+
+For a prompt such as:
+
+```text
+Plane mir die Route von Forchheim nach Riva del Garda. Ich fahre mit einem VW ID.7 mit 77 kWh Batterie.
+```
+
+Hermes should produce an answer in this style:
+
+```text
+Route
+- Start: Forchheim
+- Ziel: Riva del Garda
+- Gesamtdistanz: 588 km
+- Fahrzeit: 5 h 58 min mit aktueller Verkehrslage / 6 h 32 min statisch
+- Geprüfte Verlaufskette: B470 -> A73 -> ...
+
+Energie-Check
+- Batterie: 77 kWh
+- Verbrauchsschätzung: 16-22 kWh/100 km
+- Energiebedarf: grob 94-129 kWh
+
+Ladepunkt-Kandidaten
+- Early route: IONITY Vaterstetten, CCS data present, plausibel zu prüfen
+- Middle route: OMV Hall in Tirol, connector data missing, zu prüfen
+- Late route: rEVcharge A22, CCS data present, plausibel zu prüfen
+
+Nicht von Research Guard geprüft
+- optimized stop order
+- SoC curve and charging minutes
+- live availability and prices
+- toll/vignette details
+```
+
+The exact values depend on the live Google Routes/Places response and the configured candidate limits.
 
 ### Route Follow-Ups
 
@@ -479,7 +610,7 @@ Run tests:
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-Current beta test count: `45`.
+Current beta test count: `73`.
 
 ## Roadmap
 
@@ -488,6 +619,8 @@ The direct feature alignment with the current OpenClaw Research Guard baseline i
 - high-stakes mode for medical, legal, financial, and safety-related prompts
 - AI-content-farm and shallow-content detection
 - richer contradiction hints when top sources disagree
+- route-planning language polish: replace ambiguous `stärker belegter Kandidat` with clearer wording such as `besser dokumentierter Kandidat`
+- route-planning location wording polish: avoid unsupported phrases such as `liegt günstig auf der Route`; prefer `liegt an einem groben Suchpunkt entlang der Route`
 - more provider normalization tests
 - optional Hermes slash command such as `/rg-status`
 - integration smoke tests once Hermes exposes a stable test harness

@@ -1,3 +1,10 @@
+## 2026-05-16 - Route-Planning-Dokumentation ausgebaut
+- **Typ:** docs
+- **Änderung:** README platziert die optionale Google-Maps-Routenfunktion jetzt deutlich sichtbarer mit Überblick, Aktivierung, Answer Contract, Beispielen und Grenzen.
+- **Roadmap:** Route Planning Beta Hardening als eigener Abschnitt ergänzt.
+- **Future-Fixes:** Unklare Formulierungen wie `stärker belegter Kandidat` und `liegt günstig auf der Route` sind als geplante Feinschliff-Fixes markiert.
+- **Tests:** Test count in README updated to `73`.
+
 ## 2026-05-16 - Google-Fahrtzeiten klarer benannt
 - **Typ:** fix
 - **Problem:** Hermes konnte Google `staticDuration` als `typisch` ausgeben, obwohl das missverständlich ist.
