@@ -1,5 +1,35 @@
 # Release Notes
 
+## v0.8.0-beta.22
+
+This beta clarifies Google Routes travel-time wording.
+
+### Fixed
+
+- `duration` is now described as the Google Routes travel time with current traffic conditions.
+- `staticDuration` is now described as the static duration without current traffic conditions.
+- The model is explicitly told not to call `staticDuration` "typical" or "typische Fahrzeit".
+- Route follow-ups receive the same wording rule.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.22
+```
+
+Expected tests:
+
+```text
+Ran 73 tests
+```
+
 ## v0.8.0-beta.21
 
 This beta tightens the final route-corridor presentation rule.

@@ -1,3 +1,11 @@
+## 2026-05-16 - Google-Fahrtzeiten klarer benannt
+- **Typ:** fix
+- **Problem:** Hermes konnte Google `staticDuration` als `typisch` ausgeben, obwohl das missverständlich ist.
+- **Änderung:** Route-Kontext und Follow-ups nennen jetzt `duration` als Fahrtzeit mit aktueller Verkehrslage und `staticDuration` als statische Dauer ohne aktuelle Verkehrslage.
+- **Guardrail:** `staticDuration` darf nicht mehr als `typisch` oder `typische Fahrzeit` bezeichnet werden.
+- **Version:** Plugin version raised to `0.8.0-beta.22`.
+- **Tests:** Context tests assert the new duration labels and the no-`typisch` rule.
+
 ## 2026-05-16 - Verlaufsketten-Label strikt festgelegt
 - **Typ:** fix
 - **Problem:** Hermes konnte die geprüfte kompakte Route weiterhin als freie `Verlauf:`-Zeile ausgeben, obwohl sie aus Research Guard stammen und nicht wie Modellwissen wirken soll.

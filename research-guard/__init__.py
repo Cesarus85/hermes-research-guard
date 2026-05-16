@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.21"
+__version__ = "0.8.0-beta.22"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1729,9 +1729,10 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         f"Auslöser: route-planning; Modell: {model or 'unknown'}; Provider: {payload.get('provider')}; Cache: {bool(payload.get('cached'))}",
         f"Start: {payload.get('origin') or request.get('origin') or 'unbekannt'}",
         f"Ziel: {payload.get('destination') or request.get('destination') or 'unbekannt'}",
-        f"Route laut Google Routes: {_format_distance(route.get('distance_meters'))}; Fahrtzeit mit Verkehr: {_format_duration(route.get('duration_seconds'))}; ohne/typisch: {_format_duration(route.get('static_duration_seconds'))}.",
+        f"Route laut Google Routes: {_format_distance(route.get('distance_meters'))}; Fahrtzeit mit aktueller Verkehrslage: {_format_duration(route.get('duration_seconds'))}; statische Dauer ohne aktuelle Verkehrslage: {_format_duration(route.get('static_duration_seconds'))}.",
         "Datenquelle: Google Maps Platform Routes API und, falls Stopps vorhanden sind, Places API Nearby Search.",
         "Wichtige Grenze: Das ist eine grobe Routen- und Stopp-Kandidaten-Grundlage, keine garantierte optimale Lade- oder Tankplanung.",
+        "Fahrtzeit-Label-Regel: `duration` ist die Google-Routes-Fahrtzeit mit aktueller Verkehrslage. `staticDuration` ist eine statische Dauer ohne aktuelle Verkehrslage. Nenne `staticDuration` nicht `typisch` und schreibe nicht `typische Fahrzeit`.",
         "Planungsstatus: Research Guard liefert Route + Places-Kandidaten. Es berechnet KEINE optimierte Stoppreihenfolge, KEINE Etappendistanzen zwischen Kandidaten und KEINE SoC-/Ladezeitkurve.",
         "Stoppsprache: Verwende `Kandidaten`, `mögliche Stopps` oder `zu prüfen`, aber nicht `ideale Stopps`, `optimal` oder `empfohlen`, wenn Research Guard diese Optimierung nicht ausdrücklich berechnet hat.",
         "Bewertungssprache: Wenn Kandidaten gute Connector-Daten haben, schreibe höchstens `plausibel zu prüfen` oder `stärker belegter Kandidat`. Schreibe nicht `Empfehlung`, `ideal`, `beste Option`, `hohe Verfügbarkeit`, `der ID.7 lädt hier schnell` oder ähnliche Optimierungsaussagen.",
@@ -1905,7 +1906,8 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
         f"Modell: {model or 'unknown'}",
         f"Ursprüngliche Route: {snapshot.get('origin') or 'unbekannt'} -> {snapshot.get('destination') or 'unbekannt'}",
-        f"Route laut letztem Google-Kontext: {_format_distance(route.get('distance_meters'))}; Fahrtzeit mit Verkehr: {_format_duration(route.get('duration_seconds'))}; ohne/typisch: {_format_duration(route.get('static_duration_seconds'))}.",
+        f"Route laut letztem Google-Kontext: {_format_distance(route.get('distance_meters'))}; Fahrtzeit mit aktueller Verkehrslage: {_format_duration(route.get('duration_seconds'))}; statische Dauer ohne aktuelle Verkehrslage: {_format_duration(route.get('static_duration_seconds'))}.",
+        "Fahrtzeit-Label-Regel: `duration` ist die Google-Routes-Fahrtzeit mit aktueller Verkehrslage. `staticDuration` ist eine statische Dauer ohne aktuelle Verkehrslage. Nenne `staticDuration` nicht `typisch` und schreibe nicht `typische Fahrzeit`.",
     ]
     if preferences:
         lines.append(f"Erkannte Nutzerparameter aus der letzten Route: {json.dumps(preferences, ensure_ascii=False)}")
