@@ -1,5 +1,37 @@
 # Release Notes
 
+## v0.8.0-beta.18
+
+This beta removes route-course data from normal charging-plan answers.
+
+### Fixed
+
+- Google Routes steps are no longer included in the answer context for normal route/charging-planning prompts.
+- Route steps remain stored in the route snapshot and are exposed only when the user explicitly asks for route course/highways/roads.
+- The `Route` section is constrained to start, destination, total distance, and total duration only.
+- The `Grobe Einordnung` section may not include SoC percentages, charging windows, charging minutes, segment kilometers, or “this should get you through” style claims.
+- Connector aggregation is now worded as `Places meldet verfügbar/gesamt X/Y` with `nicht live garantiert; nicht als belegt lesen`, so local models should not invert it into occupied counts.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.18
+```
+
+Expected tests:
+
+```text
+Ran 72 tests
+OK
+```
+
 ## v0.8.0-beta.17
 
 This beta adds a required answer template for route planning.

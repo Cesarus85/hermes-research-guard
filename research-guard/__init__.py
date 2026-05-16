@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.17"
+__version__ = "0.8.0-beta.18"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -214,6 +214,12 @@ ROUTE_REFRESH_RE = re.compile(
     r"\b(neu\s*berechnen|aktualisier(?:e|en)?|refresh|nochmal|noch\s+mal|erneut|"
     r"zurück|zurueck|rückweg|rueckweg|heimweg|return\s+trip|way\s+back|"
     r"(?:ein|eine|zwei|drei|vier|\d+)\s+(?:lade)?stopps?)\b",
+    re.IGNORECASE,
+)
+ROUTE_COURSE_RE = re.compile(
+    r"\b(streckenverlauf|routeverlauf|routenverlauf|verlauf|autobahn|autobahnen|"
+    r"straße|strasse|straßen|strassen|anschlussstelle|anschlussstellen|"
+    r"über\s+welche|ueber\s+welche|welche\s+route|welche\s+straßen|welche\s+strassen)\b",
     re.IGNORECASE,
 )
 ROUTE_FROM_TO_PATTERNS = (
@@ -1009,6 +1015,11 @@ def _route_followup_should_refresh(message: str) -> bool:
     return bool(ROUTE_REFRESH_RE.search(text))
 
 
+def _is_route_course_request(message: str) -> bool:
+    text = _clean_message_for_research(message)
+    return bool(ROUTE_COURSE_RE.search(text))
+
+
 def _trim_route_place(value: str) -> str:
     value = re.sub(r"\s+", " ", value or "").strip(" \t\r\n\"'“”„.,;:!?")
     value = re.sub(
@@ -1545,6 +1556,21 @@ def _route_energy_estimate(route: dict[str, Any], preferences: dict[str, Any]) -
     return estimate
 
 
+def _format_connector_summary(connector: dict[str, Any]) -> str:
+    pieces = [str(connector.get("type") or "connector")]
+    if connector.get("max_charge_rate_kw") is not None:
+        pieces.append(f"bis {connector.get('max_charge_rate_kw')} kW")
+    available = connector.get("available_count")
+    total = connector.get("count")
+    if available is not None and total is not None:
+        pieces.append(f"Places meldet verfügbar/gesamt {available}/{total} (nicht live garantiert; nicht als belegt lesen)")
+    elif available is not None:
+        pieces.append(f"Places meldet verfügbar {available} (nicht live garantiert)")
+    elif total is not None:
+        pieces.append(f"Places meldet gesamt {total}")
+    return " ".join(pieces)
+
+
 def _route_request_from_snapshot(snapshot: dict[str, Any], *, reverse: bool = False) -> dict[str, Any]:
     request = snapshot.get("request") if isinstance(snapshot.get("request"), dict) else {}
     origin = snapshot.get("origin")
@@ -1638,6 +1664,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
     stop_coverage = payload.get("stop_coverage") if isinstance(payload.get("stop_coverage"), dict) else {}
     energy_estimate = _route_energy_estimate(route, preferences)
     route_steps = payload.get("route_steps") if isinstance(payload.get("route_steps"), dict) else {}
+    include_route_steps = _is_route_course_request(str(request.get("prompt") or ""))
     lines = [
         "[Research Guard aktiv]",
         "Für diese aktuelle Nutzerfrage wurde automatisch Routen-Kontext aus Google Maps Platform abgerufen.",
@@ -1678,9 +1705,11 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Mehrstopps-Regel: Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, liefere nur eine Kandidatenliste nach grober Routenposition. Behaupte keine optimierte Zwei-Stopp-Route, keine Etappen wie `Stop 1 -> Stop 2`, und keine Segmentkilometer, solange Research Guard keine echte Segment-/SoC-Optimierung liefert.",
         "Konflikt-Regel: Wenn nur ein Kandidat mit bestätigten Connector-/Leistungsdaten im relevanten unterwegs-Bereich vorhanden ist, sage das klar, statt einen zweiten Ladepunkt als gleichwertigen Stop zu behandeln.",
         "Antwortvorlage-Pflicht: Nutze für normale Routen-/Ladeplanungsantworten nur diese Rubriken: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`.",
+        "Route-Rubrik-Regel: In der Rubrik `Route` sind nur Start, Ziel, Gesamtdistanz und Gesamtfahrzeit erlaubt. Keine Zeile `Verlauf:`, keine Autobahnen/Straßen, keine Pässe, keine Maut.",
         "Vorlagen-Regel: Eine `Streckenverlauf`-Rubrik darf nur erscheinen, wenn der Nutzer ausdrücklich nach Verlauf/Autobahnen/Straßen fragt. Dann ausschließlich nummerierte Google-Routes-Schritte ausgeben, keine Ein-Zeilen-Kette.",
         "Maut-Rubrik-Regel: Eine Maut-/Vignetten-Rubrik darf nur erscheinen, wenn offizielle Mautdaten injiziert sind. Sonst schreibe höchstens unter `Nicht von Research Guard geprüft`: `Maut/Vignette wurde von Research Guard nicht geprüft.`",
         "Verbotene-Rubriken-Regel: Verwende keine Rubriken oder Aussagen wie `Meine Empfehlung`, `Plausibler Ladeplan`, `Ideale Stopps`, `Stärkster Kandidat`, `Wichtige Hinweise: Vignette nötig`, wenn diese Inhalte nicht offiziell berechnet oder belegt sind.",
+        "Grobe-Einordnung-Regel: In `Grobe Einordnung` sind nur Kandidaten nach grober Routenposition erlaubt. Keine SoC-Prozente, keine Ladefenster, keine Ladezeit-Minuten, keine Segmentkilometer, keine `das sollte reichen/durchbringen`-Aussage.",
         "Tool-Angebot-Regel: Biete nicht an, ABRP, PlugShare, VW-App oder andere externe Apps aufzurufen oder Live-Status zu prüfen, wenn kein entsprechendes Tool im Kontext steht. Verweise nur darauf, dass der Nutzer dort selbst prüfen sollte.",
     ]
     if preferences:
@@ -1691,7 +1720,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         lines.append(f"Hinweise: {' '.join(str(item) for item in payload.get('warnings') or [])}")
     if route_shape:
         lines.append(f"Route-Shape-Diagnostik: {json.dumps(route_shape, ensure_ascii=False)}")
-    if route_steps and route_steps.get("steps"):
+    if include_route_steps and route_steps and route_steps.get("steps"):
         lines.extend(["", "Streckenverlauf aus Google Routes:"])
         for step in route_steps.get("steps") or []:
             distance = f"; Distanz: {step.get('distance')}" if step.get("distance") and step.get("distance") != "unbekannt" else ""
@@ -1701,8 +1730,10 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         if route_steps.get("truncated"):
             lines.append(f"Hinweis: Google lieferte {route_steps.get('count')} Schritte; nur die ersten {route_steps.get('shown')} sind im Kontext.")
         lines.append("Diese Schritte enthalten keine offiziellen Maut-, Vignetten-, Höhenmeter- oder Grenzkosten.")
-    else:
+    elif include_route_steps:
         lines.append("Streckenverlauf aus Google Routes: Keine detaillierten Navigationsschritte im Kontext. Erfinde keine Autobahnen, Straßen, Mautkosten, Passhöhen oder Grenzdetails.")
+    else:
+        lines.append("Streckenverlauf aus Google Routes: Für diese normale Routen-/Ladeplanungsfrage bewusst NICHT in den Antwortkontext aufgenommen. Keine Autobahnen/Straßen/Verlauf-Zeile nennen.")
     if stop_coverage:
         lines.append(f"Stopp-Abdeckung: {json.dumps(stop_coverage, ensure_ascii=False)}")
     if chargers:
@@ -1710,12 +1741,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         for idx, charger in enumerate(chargers, 1):
             connector_text = []
             for connector in charger.get("connectors") or []:
-                pieces = [str(connector.get("type") or "connector")]
-                if connector.get("max_charge_rate_kw") is not None:
-                    pieces.append(f"bis {connector.get('max_charge_rate_kw')} kW")
-                if connector.get("available_count") is not None or connector.get("count") is not None:
-                    pieces.append(f"frei/gesamt {connector.get('available_count', '?')}/{connector.get('count', '?')}")
-                connector_text.append(" ".join(pieces))
+                connector_text.append(_format_connector_summary(connector))
             details = f"; Anschlüsse: {'; '.join(connector_text)}" if connector_text else ""
             url = f"; Maps: {charger.get('google_maps_uri')}" if charger.get("google_maps_uri") else ""
             rating = f"; Rating: {charger.get('rating')}" if charger.get("rating") is not None else ""
@@ -1787,6 +1813,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
     stop_coverage = snapshot.get("stop_coverage") if isinstance(snapshot.get("stop_coverage"), dict) else {}
     energy_estimate = snapshot.get("energy_estimate") if isinstance(snapshot.get("energy_estimate"), dict) else {}
     route_steps = snapshot.get("route_steps") if isinstance(snapshot.get("route_steps"), dict) else {}
+    include_route_steps = _is_route_course_request(user_message)
     lines = [
         "[Research Guard: Routen-Follow-up]",
         "Der Nutzer stellt eine Anschlussfrage zum zuletzt von Research Guard bereitgestellten Routen-Kontext.",
@@ -1805,8 +1832,10 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, aber nur gespeicherte Kandidaten vorliegen, liefere keine selbst gebaute Etappenplanung. Liste Kandidaten nach grober Routenposition und sage, dass Research Guard keine optimierte Mehrstopp-Route berechnet.",
         "Ordne Lade-/Tankkandidaten nicht frei zwischen Google-Routes-Schritten ein und erfinde keine Segmentkilometer zwischen Kandidaten.",
         "Nutze nur diese Rubriken: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`.",
+        "In der Rubrik `Route` sind nur Start, Ziel, Gesamtdistanz und Gesamtfahrzeit erlaubt. Keine Zeile `Verlauf:`, keine Autobahnen/Straßen, keine Pässe, keine Maut.",
         "`Streckenverlauf` nur bei ausdrücklicher Nachfrage und dann nur als nummerierte gespeicherte Google-Routes-Schritte, nie als Ein-Zeilen-Autobahnkette.",
         "Maut/Vignette nur als `nicht von Research Guard geprüft`, sofern keine offiziellen Mautdaten gespeichert sind.",
+        "In `Grobe Einordnung` sind keine SoC-Prozente, Ladefenster, Ladezeit-Minuten, Segmentkilometer oder `das sollte reichen/durchbringen`-Aussagen erlaubt.",
         "Biete nicht an, ABRP, PlugShare, VW-App oder externe Live-Status-Checks aufzurufen, wenn kein entsprechendes Tool im Kontext steht.",
         f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
         f"Modell: {model or 'unknown'}",
@@ -1821,7 +1850,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         lines.append(f"Hinweise aus der letzten Route: {' '.join(str(item) for item in snapshot.get('warnings') or [])}")
     if route_shape:
         lines.append(f"Route-Shape-Diagnostik aus der letzten Route: {json.dumps(route_shape, ensure_ascii=False)}")
-    if route_steps and route_steps.get("steps"):
+    if include_route_steps and route_steps and route_steps.get("steps"):
         lines.extend(["", "Gespeicherter Streckenverlauf aus Google Routes:"])
         for step in route_steps.get("steps") or []:
             distance = f"; Distanz: {step.get('distance')}" if step.get("distance") and step.get("distance") != "unbekannt" else ""
@@ -1831,8 +1860,10 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         if route_steps.get("truncated"):
             lines.append(f"Hinweis: Google lieferte {route_steps.get('count')} Schritte; nur die ersten {route_steps.get('shown')} sind gespeichert.")
         lines.append("Diese Schritte enthalten keine offiziellen Maut-, Vignetten-, Höhenmeter- oder Grenzkosten.")
-    else:
+    elif include_route_steps:
         lines.append("Gespeicherter Streckenverlauf aus Google Routes: Keine detaillierten Navigationsschritte gespeichert. Erfinde keine Autobahnen, Straßen, Mautkosten, Passhöhen oder Grenzdetails.")
+    else:
+        lines.append("Gespeicherter Streckenverlauf aus Google Routes: Für diese Anschlussfrage bewusst NICHT in den Antwortkontext aufgenommen. Keine Autobahnen/Straßen/Verlauf-Zeile nennen.")
     if stop_coverage:
         lines.append(f"Stopp-Abdeckung aus der letzten Route: {json.dumps(stop_coverage, ensure_ascii=False)}")
     if chargers:
@@ -1840,12 +1871,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         for idx, charger in enumerate(chargers, 1):
             connector_text = []
             for connector in charger.get("connectors") or []:
-                pieces = [str(connector.get("type") or "connector")]
-                if connector.get("max_charge_rate_kw") is not None:
-                    pieces.append(f"bis {connector.get('max_charge_rate_kw')} kW")
-                if connector.get("available_count") is not None or connector.get("count") is not None:
-                    pieces.append(f"frei/gesamt {connector.get('available_count', '?')}/{connector.get('count', '?')}")
-                connector_text.append(" ".join(pieces))
+                connector_text.append(_format_connector_summary(connector))
             details = f"; Anschlüsse: {'; '.join(connector_text)}" if connector_text else ""
             url = f"; Maps: {charger.get('google_maps_uri')}" if charger.get("google_maps_uri") else ""
             rating = f"; Rating: {charger.get('rating')}" if charger.get("rating") is not None else ""

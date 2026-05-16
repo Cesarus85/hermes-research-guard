@@ -1107,28 +1107,69 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Start-Ladepunkt-Regel", result["context"])
         self.assertIn("keine Werte wie `20-80%`, `20-30 Min`, `ankommen mit 15-25%`", result["context"])
         self.assertIn("Connector-Regel", result["context"])
+        self.assertIn("Places meldet verfügbar/gesamt 2/4", result["context"])
+        self.assertIn("nicht live garantiert; nicht als belegt lesen", result["context"])
+        self.assertNotIn("frei/gesamt", result["context"])
         self.assertIn("Standort-Komfort-Regel", result["context"])
         self.assertIn("Tesla-CCS-Regel", result["context"])
         self.assertIn("Streckenverlauf aus Google Routes", result["context"])
-        self.assertIn("Auf A73 Richtung Nürnberg fahren", result["context"])
+        self.assertIn("bewusst NICHT in den Antwortkontext aufgenommen", result["context"])
+        self.assertNotIn("Auf A73 Richtung Nürnberg fahren", result["context"])
         self.assertIn("Maut-/Kosten-Regel", result["context"])
         self.assertIn("nur als nummerierte `Google-Routes-Schritte`", result["context"])
         self.assertIn("KEINE eigene kompakte Autobahnkette", result["context"])
         self.assertIn("Research Guard hat dazu keine offiziellen Maut-/Vignetten-/Höhendaten injiziert", result["context"])
-        self.assertIn("keine offiziellen Maut-, Vignetten-, Höhenmeter- oder Grenzkosten", result["context"])
+        self.assertIn("Maut/Vignette wurde von Research Guard nicht geprüft", result["context"])
         self.assertIn("Stopppositions-Regel", result["context"])
         self.assertIn("Mehrstopps-Regel", result["context"])
         self.assertIn("Antwortvorlage-Pflicht", result["context"])
+        self.assertIn("Route-Rubrik-Regel", result["context"])
+        self.assertIn("Keine Zeile `Verlauf:`", result["context"])
         self.assertIn("`Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`", result["context"])
         self.assertIn("Eine `Streckenverlauf`-Rubrik darf nur erscheinen", result["context"])
         self.assertIn("Maut-/Vignetten-Rubrik darf nur erscheinen", result["context"])
         self.assertIn("Verbotene-Rubriken-Regel", result["context"])
+        self.assertIn("Grobe-Einordnung-Regel", result["context"])
+        self.assertIn("keine `das sollte reichen/durchbringen`-Aussage", result["context"])
         self.assertIn("Biete nicht an, ABRP, PlugShare, VW-App", result["context"])
         self.assertIn("Position: middle-route-area (~50%)", result["context"])
         self.assertIn("Datenquelle (Research Guard): Google Maps Platform Routes/Places", result["context"])
         self.assertEqual(guard.DECISIONS[-1]["action"], "injected")
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning")
         self.assertEqual(guard.DECISIONS[-1]["route_planning"]["charger_candidate_count"], 1)
+
+    def test_route_context_includes_google_steps_only_for_explicit_route_course_request(self):
+        context = guard._format_route_context(
+            {
+                "provider": "google-maps",
+                "origin": "Forchheim",
+                "destination": "Berlin",
+                "route": {"distance_meters": 410000, "duration_seconds": 14400, "static_duration_seconds": 13800},
+                "chargers": [],
+                "fuel_stops": [],
+                "route_steps": {
+                    "count": 1,
+                    "shown": 1,
+                    "truncated": False,
+                    "steps": [{"index": 1, "instruction": "Auf A73 Richtung Nürnberg fahren", "distance": "35 km", "static_duration": "25 min"}],
+                },
+                "warnings": [],
+                "cached": False,
+            },
+            {
+                "origin": "Forchheim",
+                "destination": "Berlin",
+                "needs_ev_chargers": False,
+                "needs_fuel_stops": False,
+                "preferences": {},
+                "prompt": "Zeig mir den Streckenverlauf von Forchheim nach Berlin.",
+            },
+            "qwen3",
+        )
+
+        self.assertIn("Streckenverlauf aus Google Routes", context)
+        self.assertIn("Auf A73 Richtung Nürnberg fahren", context)
+        self.assertNotIn("bewusst NICHT in den Antwortkontext aufgenommen", context)
 
     def test_route_planning_context_supports_fuel_stops(self):
         guard.DECISIONS.clear()
@@ -1488,7 +1529,8 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Nenne keine 20-80%-Fenster", result["context"])
         self.assertIn("Startbereich-Ladepunkte sind bei vollem Startakku nur Vorab-Optionen", result["context"])
         self.assertIn("Gespeicherter Streckenverlauf aus Google Routes", result["context"])
-        self.assertIn("Auf A73 Richtung Nürnberg fahren", result["context"])
+        self.assertIn("bewusst NICHT in den Antwortkontext aufgenommen", result["context"])
+        self.assertNotIn("Auf A73 Richtung Nürnberg fahren", result["context"])
         self.assertIn("Gib sie nur als nummerierte Schritte aus", result["context"])
         self.assertIn("keine eigene kompakte Autobahnkette", result["context"])
         self.assertIn("hohe Verfügbarkeit", result["context"])

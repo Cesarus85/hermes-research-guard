@@ -1,3 +1,12 @@
+## 2026-05-16 - Normale Ladeplanung ohne Streckenverlauf-Daten
+- **Typ:** fix
+- **Problem:** Hermes konnte in normalen Ladeplanungsantworten weiterhin eine `Verlauf:`-Zeile oder Autobahnkette erzeugen, weil Google-Routes-Schritte im Kontext sichtbar waren.
+- **Änderung:** Google-Routes-Schritte werden in normalen Routen-/Ladeplanungsantworten nicht mehr in den Antwortkontext aufgenommen. Sie bleiben intern im Snapshot und erscheinen nur bei ausdrücklicher Streckenverlaufsfrage.
+- **Connector-Zahlen:** Connector-Aggregationen werden jetzt als `Places meldet verfügbar/gesamt X/Y` formuliert, inklusive Hinweis `nicht live garantiert; nicht als belegt lesen`.
+- **Antwortvorlage:** Die `Route`-Rubrik darf nur Start, Ziel, Gesamtdistanz und Gesamtfahrzeit enthalten. `Grobe Einordnung` darf keine SoC-Prozente, Ladefenster, Ladezeit-Minuten, Segmentkilometer oder `das sollte reichen/durchbringen` enthalten.
+- **Version:** Plugin version raised to `0.8.0-beta.18`.
+- **Tests:** Test suite expanded with explicit route-course gating and connector wording coverage.
+
 ## 2026-05-16 - Routen-Antwortvorlage erzwingen
 - **Typ:** fix
 - **Problem:** Hermes konnte trotz Guardrails noch unerlaubte Rubriken wie eigene Streckenverlauf-Ketten, Maut-Hinweise, `Plausibler Ladeplan` oder zu starke Kandidatenempfehlungen ausgeben.
