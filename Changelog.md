@@ -1,3 +1,12 @@
+## 2026-05-16 - EV-Reichweiten-Plausibilitätsrechnung ergänzt
+- **Typ:** fix
+- **Problem:** Lokale Modelle konnten bei EV-Routen einfache Reichweitenmathematik falsch ausrechnen, z. B. aus 77 kWh und 16-18 kWh/100 km nur 125-135 km Reichweite ableiten.
+- **Änderung:** Research Guard injiziert jetzt bei erkannter Akkugröße eine einfache Energie-Plausibilitätsrechnung mit Formel, Verbrauchsband, grober Vollakku-Reichweite und grobem Energiebedarf der Route.
+- **Parsing:** Häufige Nutzereingabe wie `77 kw Batterie` wird als Akkugröße erkannt, ohne normale Ladeleistungsangaben wie `125 kW` als Batterie zu behandeln.
+- **Guardrails:** Hermes soll Reichweite, Energiebedarf und grobe Ladestopp-Anzahl nur noch gegen diese Rechnung plausibilisieren und keine widersprüchlichen Werte ausgeben.
+- **Version:** Plugin version raised to `0.8.0-beta.12`.
+- **Tests:** Test suite expanded from 63 to 66 dependency-free tests.
+
 ## 2026-05-16 - Routenplanung auf Kandidaten statt erfundene Optimierung begrenzt
 - **Typ:** fix
 - **Problem:** Lokale Modelle konnten Google-Places-Kandidaten als `ideale` Ladeplanung ausgeben und zusätzlich Segmentdistanzen, SoC-Werte, Ladezeiten oder weitere Stopps aus Trainingswissen ergänzen.

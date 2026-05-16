@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.8.0-beta.12
+
+This beta adds EV range plausibility math to route context.
+
+### Fixed
+
+- Route context now includes a simple energy estimate when the prompt contains an EV battery size.
+- The injected estimate includes the formula, a conservative consumption band, rough full-battery range, rough route energy need, and a mathematical lower bound for mid-route charging.
+- Local models are instructed to use that estimate when discussing range, energy need, or rough charge-stop count.
+- Common user wording such as `77 kw Batterie` is now treated as a battery-size typo, while ordinary charging-power mentions remain untouched.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.12
+```
+
+Expected tests:
+
+```text
+Ran 66 tests
+OK
+```
+
 ## v0.8.0-beta.11
 
 This beta tightens route-planning answer discipline.

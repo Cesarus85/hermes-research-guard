@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.11"
+__version__ = "0.8.0-beta.12"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1035,6 +1035,12 @@ def _extract_route_request(message: str) -> dict[str, Any]:
         "route_terms_detected": sorted(set(match.group(0).lower() for match in ROUTE_PLANNING_RE.finditer(text)))[:8],
     }
     battery_match = re.search(r"\b(\d{2,3})\s*kwh\b", text, flags=re.IGNORECASE)
+    if not battery_match:
+        battery_match = re.search(
+            r"\b(\d{2,3})\s*kw\b(?=[^\n.]{0,30}\b(?:batterie|akku)\b)",
+            text,
+            flags=re.IGNORECASE,
+        )
     if battery_match:
         preferences["battery_kwh"] = int(battery_match.group(1))
     vehicle_match = re.search(
@@ -1369,6 +1375,7 @@ def _route_stop_coverage(stops: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _route_context_snapshot(payload: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
     route = payload.get("route") if isinstance(payload.get("route"), dict) else {}
+    energy_estimate = _route_energy_estimate(route, request.get("preferences") if isinstance(request.get("preferences"), dict) else {})
     return {
         "origin": payload.get("origin") or request.get("origin"),
         "destination": payload.get("destination") or request.get("destination"),
@@ -1385,10 +1392,65 @@ def _route_context_snapshot(payload: dict[str, Any], request: dict[str, Any]) ->
         "chargers": (payload.get("chargers") or [])[:12],
         "fuel_stops": (payload.get("fuel_stops") or [])[:12],
         "stop_coverage": payload.get("stop_coverage") or {},
+        "energy_estimate": energy_estimate,
         "warnings": payload.get("warnings") or [],
         "route_shape": payload.get("route_shape") or {},
         "provider": payload.get("provider"),
     }
+
+
+def _route_energy_estimate(route: dict[str, Any], preferences: dict[str, Any]) -> dict[str, Any]:
+    battery = preferences.get("battery_kwh")
+    try:
+        battery_kwh = float(battery)
+    except (TypeError, ValueError):
+        return {}
+    if battery_kwh < 10 or battery_kwh > 250:
+        return {}
+
+    given_consumption = preferences.get("consumption_kwh_per_100km")
+    consumption_band: list[float]
+    if isinstance(given_consumption, (int, float)) and 5 <= float(given_consumption) <= 60:
+        consumption_band = [float(given_consumption), float(given_consumption)]
+        basis = "user-provided-consumption"
+    else:
+        consumption_band = [16.0, 22.0]
+        basis = "generic-motorway-ev-band"
+        if preferences.get("loaded_vehicle") or int(preferences.get("passengers") or 0) >= 4:
+            consumption_band = [18.0, 24.0]
+            basis = "loaded-motorway-ev-band"
+
+    low_consumption = min(consumption_band)
+    high_consumption = max(consumption_band)
+    full_range_min = int((battery_kwh / high_consumption * 100) + 0.5)
+    full_range_max = int((battery_kwh / low_consumption * 100) + 0.5)
+    estimate: dict[str, Any] = {
+        "battery_kwh": battery_kwh,
+        "consumption_kwh_per_100km_band": [low_consumption, high_consumption],
+        "full_battery_range_km_band": [full_range_min, full_range_max],
+        "basis": basis,
+        "formula": "range_km = battery_kwh / consumption_kwh_per_100km * 100",
+        "guardrail": "Do not state a range far outside this band unless you clearly explain a different explicit assumption.",
+    }
+
+    distance_meters = route.get("distance_meters") if isinstance(route, dict) else None
+    if isinstance(distance_meters, (int, float)) and distance_meters > 0:
+        route_km = float(distance_meters) / 1000
+        route_energy_min = int((route_km * low_consumption / 100) + 0.5)
+        route_energy_max = int((route_km * high_consumption / 100) + 0.5)
+        minimum_midroute_charges = max(0, int((route_energy_max - 0.0001) // battery_kwh))
+        estimate.update(
+            {
+                "route_distance_km": int(route_km + 0.5),
+                "route_energy_need_kwh_band": [route_energy_min, route_energy_max],
+                "mathematical_minimum_midroute_charges": minimum_midroute_charges,
+                "charging_note": (
+                    "This is only a plausibility check from simple energy math, not an optimized charging plan. "
+                    "Buffers, usable battery, weather, speed, elevation, cargo, and live charger data can change the practical stop count."
+                ),
+            }
+        )
+    return estimate
 
 
 def _route_request_from_snapshot(snapshot: dict[str, Any], *, reverse: bool = False) -> dict[str, Any]:
@@ -1480,6 +1542,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
     preferences = request.get("preferences") if isinstance(request.get("preferences"), dict) else {}
     route_shape = payload.get("route_shape") if isinstance(payload.get("route_shape"), dict) else {}
     stop_coverage = payload.get("stop_coverage") if isinstance(payload.get("stop_coverage"), dict) else {}
+    energy_estimate = _route_energy_estimate(route, preferences)
     lines = [
         "[Research Guard aktiv]",
         "Für diese aktuelle Nutzerfrage wurde automatisch Routen-Kontext aus Google Maps Platform abgerufen.",
@@ -1502,6 +1565,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Wenn der Nutzer ideale Lade-/Tankstopps verlangt, sage klar: Research Guard liefert Kandidaten entlang/nahe der Route, aber keine echte ABRP-/Live-Ladeplanung oder fahrzeugspezifisch optimierte Stoppreihenfolge.",
         "Erfinde keine exakten SoC-Verläufe, Ladezeiten, Ladeleistungen, Kraftstoffpreise, Verfügbarkeit oder optimale Stopps, wenn sie nicht ausdrücklich im Kontext stehen.",
         "Wenn Akku, Verbrauch, Start-SoC, gewünschter Ziel-SoC, Ladeleistung, Kraftstoffart oder Reichweite fehlen, nenne realistische Annahmen ausdrücklich oder frage kurz nach.",
+        "Energie-Mathe-Pflicht: Wenn du Reichweite, Energiebedarf oder Anzahl der Ladestopps schätzt, nutze die unten stehende einfache Plausibilitätsrechnung. Rechne `Reichweite = Akku-kWh / Verbrauch-kWh-pro-100km * 100` und vermeide offensichtliche Rechenfehler.",
         "Wenn du Ladepunkte nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte funktionierende Stopps.",
         "Wenn du Tankstellen nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte Kraftstoffverfügbarkeit oder Preisangabe.",
         "Wenn Lade-/Tankkandidaten nur an Start, Ziel oder einem einzelnen Routenpunkt gefunden wurden, sage genau das. Ergänze KEINE unterwegs liegenden Stopps aus Trainingswissen.",
@@ -1509,6 +1573,8 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
     ]
     if preferences:
         lines.append(f"Erkannte Nutzerparameter: {json.dumps(preferences, ensure_ascii=False)}")
+    if energy_estimate:
+        lines.append(f"Energie-Plausibilitätsrechnung: {json.dumps(energy_estimate, ensure_ascii=False)}")
     if payload.get("warnings"):
         lines.append(f"Hinweise: {' '.join(str(item) for item in payload.get('warnings') or [])}")
     if route_shape:
@@ -1593,6 +1659,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
     fuel_stops = snapshot.get("fuel_stops") if isinstance(snapshot.get("fuel_stops"), list) else []
     route_shape = snapshot.get("route_shape") if isinstance(snapshot.get("route_shape"), dict) else {}
     stop_coverage = snapshot.get("stop_coverage") if isinstance(snapshot.get("stop_coverage"), dict) else {}
+    energy_estimate = snapshot.get("energy_estimate") if isinstance(snapshot.get("energy_estimate"), dict) else {}
     lines = [
         "[Research Guard: Routen-Follow-up]",
         "Der Nutzer stellt eine Anschlussfrage zum zuletzt von Research Guard bereitgestellten Routen-Kontext.",
@@ -1601,6 +1668,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Planungsstatus: Der gespeicherte Kontext enthält Route + Places-Kandidaten, aber keine optimierte Stoppreihenfolge, keine Etappendistanzen zwischen Kandidaten und keine SoC-/Ladezeitkurve.",
         "Nenne ausschließlich die gespeicherten Places-Kandidaten und bezeichne sie nicht als ideal, optimal oder garantiert empfohlen, außer diese Optimierung steht ausdrücklich im Kontext.",
         "Erfinde keine zusätzlichen Ladeparks, Tankstellen, Segment-Kilometer, SoC-Werte, Ladezeiten, Ladeleistungen, Preise oder Live-Verfügbarkeiten.",
+        "Wenn du Reichweite, Energiebedarf oder Ladestopp-Anzahl schätzt, nutze nur die gespeicherte Energie-Plausibilitätsrechnung und rechne keine widersprüchlichen Werte aus.",
         f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
         f"Modell: {model or 'unknown'}",
         f"Ursprüngliche Route: {snapshot.get('origin') or 'unbekannt'} -> {snapshot.get('destination') or 'unbekannt'}",
@@ -1608,6 +1676,8 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
     ]
     if preferences:
         lines.append(f"Erkannte Nutzerparameter aus der letzten Route: {json.dumps(preferences, ensure_ascii=False)}")
+    if energy_estimate:
+        lines.append(f"Energie-Plausibilitätsrechnung aus der letzten Route: {json.dumps(energy_estimate, ensure_ascii=False)}")
     if snapshot.get("warnings"):
         lines.append(f"Hinweise aus der letzten Route: {' '.join(str(item) for item in snapshot.get('warnings') or [])}")
     if route_shape:

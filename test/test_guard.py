@@ -945,6 +945,33 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(request["preferences"]["passengers"], 4)
         self.assertTrue(request["preferences"]["loaded_vehicle"])
 
+    def test_route_planning_detects_common_kw_battery_typo(self):
+        request = guard._extract_route_request(
+            "Plane die Route von Forchheim nach Riva del Garda. Ich fahre mit einem VW ID 7 mit 77 kw Batterie."
+        )
+
+        self.assertTrue(request["needs_ev_chargers"])
+        self.assertEqual(request["preferences"]["battery_kwh"], 77)
+
+    def test_route_planning_does_not_treat_charging_power_as_battery_size(self):
+        request = guard._extract_route_request(
+            "Plane die Route von Forchheim nach Riva del Garda mit Ladeplanung. Tesla Supercharger bis 125 kW."
+        )
+
+        self.assertTrue(request["needs_ev_chargers"])
+        self.assertNotIn("battery_kwh", request["preferences"])
+
+    def test_route_energy_estimate_provides_range_plausibility_math(self):
+        estimate = guard._route_energy_estimate(
+            {"distance_meters": 588000},
+            {"battery_kwh": 77, "loaded_vehicle": True, "passengers": 4},
+        )
+
+        self.assertEqual(estimate["consumption_kwh_per_100km_band"], [18.0, 24.0])
+        self.assertEqual(estimate["full_battery_range_km_band"], [321, 428])
+        self.assertEqual(estimate["route_energy_need_kwh_band"], [106, 141])
+        self.assertEqual(estimate["mathematical_minimum_midroute_charges"], 1)
+
     def test_enabled_route_planning_without_api_key_injects_guardrail_context(self):
         guard.DECISIONS.clear()
         old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
@@ -957,7 +984,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
             result = guard.pre_llm_research_guard(
                 "s1",
-                "Plane eine Route von Forchheim nach Berlin mit Ladeplanung für ein E-Auto.",
+                "Plane eine Route von Forchheim nach Berlin mit Ladeplanung für ein E-Auto mit 77 kWh Batterie.",
                 "qwen3",
                 "ollama",
             )
@@ -1030,7 +1057,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
             result = guard.pre_llm_research_guard(
                 "s1",
-                "Plane eine Route von Forchheim nach Berlin mit Ladeplanung für ein E-Auto.",
+                "Plane eine Route von Forchheim nach Berlin mit Ladeplanung für ein E-Auto mit 77 kWh Batterie.",
                 "qwen3",
                 "ollama",
             )
@@ -1053,6 +1080,9 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Nenne ausschließlich die unten aufgeführten Places-Kandidaten", result["context"])
         self.assertIn("keine Kilometerangaben oder Zeitangaben zwischen Start, Kandidaten und Ziel", result["context"])
         self.assertIn("keine echte ABRP-/Live-Ladeplanung", result["context"])
+        self.assertIn("Energie-Plausibilitätsrechnung", result["context"])
+        self.assertIn("full_battery_range_km_band", result["context"])
+        self.assertIn("range_km = battery_kwh / consumption_kwh_per_100km * 100", result["context"])
         self.assertIn("Datenquelle (Research Guard): Google Maps Platform Routes/Places", result["context"])
         self.assertEqual(guard.DECISIONS[-1]["action"], "injected")
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning")
