@@ -1,3 +1,11 @@
+## 2026-05-16 - Routenplanung auf Kandidaten statt erfundene Optimierung begrenzt
+- **Typ:** fix
+- **Problem:** Lokale Modelle konnten Google-Places-Kandidaten als `ideale` Ladeplanung ausgeben und zusätzlich Segmentdistanzen, SoC-Werte, Ladezeiten oder weitere Stopps aus Trainingswissen ergänzen.
+- **Änderung:** Routen-Kontext und Routen-Follow-ups markieren jetzt ausdrücklich: Research Guard liefert Route + Places-Kandidaten, aber keine optimierte Stoppreihenfolge, keine Etappendistanzen zwischen Kandidaten und keine SoC-/Ladezeitkurve.
+- **Guardrails:** Hermes soll ausschließlich injizierte Places-Kandidaten nennen und sie als Kandidaten formulieren, nicht als garantierte oder optimale Stopps.
+- **Version:** Plugin version raised to `0.8.0-beta.11`.
+- **Tests:** Existing route-context tests now assert the stricter candidate-only route-planning guardrails.
+
 ## 2026-05-16 - Lade-/Tankstopp-Auswahl über Routenpunkte balanciert
 - **Typ:** fix
 - **Problem:** Places konnte pro gesampeltem Routenpunkt bis zu 6 Treffer liefern; danach wurde global auf 6 gekürzt. Dadurch konnten alle Kandidaten vom Startpunkt kommen und unterwegs liegende Treffer verdrängen.

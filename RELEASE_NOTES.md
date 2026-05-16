@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.8.0-beta.11
+
+This beta tightens route-planning answer discipline.
+
+### Fixed
+
+- Route context now explicitly says that Google Maps provides route data and Places candidates, not an optimized EV/fuel stop plan.
+- Local models are instructed to avoid calling candidates "ideal", "optimal", or "recommended" unless Research Guard has actually computed that optimization.
+- Route answers must not invent segment distances, SoC values, charging times, charging power, prices, live availability, providers, or extra stops from training knowledge.
+- Route follow-ups inherit the same candidate-only rules when they reuse previous route context.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.11
+```
+
+Expected tests:
+
+```text
+Ran 63 tests
+OK
+```
+
 ## v0.8.0-beta.10
 
 This beta fixes stop-candidate selection for route planning.

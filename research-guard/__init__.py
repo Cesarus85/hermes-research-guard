@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.10"
+__version__ = "0.8.0-beta.11"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1495,7 +1495,12 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         f"Route laut Google Routes: {_format_distance(route.get('distance_meters'))}; Fahrtzeit mit Verkehr: {_format_duration(route.get('duration_seconds'))}; ohne/typisch: {_format_duration(route.get('static_duration_seconds'))}.",
         "Datenquelle: Google Maps Platform Routes API und, falls Stopps vorhanden sind, Places API Nearby Search.",
         "Wichtige Grenze: Das ist eine grobe Routen- und Stopp-Kandidaten-Grundlage, keine garantierte optimale Lade- oder Tankplanung.",
-        "Erfinde keine exakten SoC-Verläufe, Ladezeiten, Kraftstoffpreise, Verfügbarkeit oder optimale Stopps, wenn Fahrzeugdaten oder Live-Verfügbarkeiten fehlen.",
+        "Planungsstatus: Research Guard liefert Route + Places-Kandidaten. Es berechnet KEINE optimierte Stoppreihenfolge, KEINE Etappendistanzen zwischen Kandidaten und KEINE SoC-/Ladezeitkurve.",
+        "Stoppsprache: Verwende `Kandidaten`, `mögliche Stopps` oder `zu prüfen`, aber nicht `ideale Stopps`, `optimal` oder `empfohlen`, wenn Research Guard diese Optimierung nicht ausdrücklich berechnet hat.",
+        "Places-Pflicht: Nenne ausschließlich die unten aufgeführten Places-Kandidaten. Erfinde keine weiteren Ladeparks, Supercharger, Tankstellen, Anbieter oder Ziel-Ladepunkte.",
+        "Segmentpflicht: Nenne keine Kilometerangaben oder Zeitangaben zwischen Start, Kandidaten und Ziel, außer sie stehen ausdrücklich im Routen-Kontext.",
+        "Wenn der Nutzer ideale Lade-/Tankstopps verlangt, sage klar: Research Guard liefert Kandidaten entlang/nahe der Route, aber keine echte ABRP-/Live-Ladeplanung oder fahrzeugspezifisch optimierte Stoppreihenfolge.",
+        "Erfinde keine exakten SoC-Verläufe, Ladezeiten, Ladeleistungen, Kraftstoffpreise, Verfügbarkeit oder optimale Stopps, wenn sie nicht ausdrücklich im Kontext stehen.",
         "Wenn Akku, Verbrauch, Start-SoC, gewünschter Ziel-SoC, Ladeleistung, Kraftstoffart oder Reichweite fehlen, nenne realistische Annahmen ausdrücklich oder frage kurz nach.",
         "Wenn du Ladepunkte nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte funktionierende Stopps.",
         "Wenn du Tankstellen nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte Kraftstoffverfügbarkeit oder Preisangabe.",
@@ -1593,6 +1598,9 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Der Nutzer stellt eine Anschlussfrage zum zuletzt von Research Guard bereitgestellten Routen-Kontext.",
         "Für diese Anschlussfrage wurde KEINE neue Google-Abfrage ausgeführt. Nutze nur den folgenden letzten Routen-Kontext und den sichtbaren Gesprächskontext.",
         "Wenn die Anschlussfrage eine geänderte Route, aktuelle Live-Verfügbarkeit, neue Stopps oder neue Verkehrsdaten verlangt, sage klar, dass dafür eine neue Routenabfrage nötig ist.",
+        "Planungsstatus: Der gespeicherte Kontext enthält Route + Places-Kandidaten, aber keine optimierte Stoppreihenfolge, keine Etappendistanzen zwischen Kandidaten und keine SoC-/Ladezeitkurve.",
+        "Nenne ausschließlich die gespeicherten Places-Kandidaten und bezeichne sie nicht als ideal, optimal oder garantiert empfohlen, außer diese Optimierung steht ausdrücklich im Kontext.",
+        "Erfinde keine zusätzlichen Ladeparks, Tankstellen, Segment-Kilometer, SoC-Werte, Ladezeiten, Ladeleistungen, Preise oder Live-Verfügbarkeiten.",
         f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
         f"Modell: {model or 'unknown'}",
         f"Ursprüngliche Route: {snapshot.get('origin') or 'unbekannt'} -> {snapshot.get('destination') or 'unbekannt'}",

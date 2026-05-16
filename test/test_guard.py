@@ -1049,6 +1049,10 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Research Guard: Routen-Kontext", result["context"])
         self.assertIn("410 km", result["context"])
         self.assertIn("Example Fast Charge", result["context"])
+        self.assertIn("KEINE optimierte Stoppreihenfolge", result["context"])
+        self.assertIn("Nenne ausschließlich die unten aufgeführten Places-Kandidaten", result["context"])
+        self.assertIn("keine Kilometerangaben oder Zeitangaben zwischen Start, Kandidaten und Ziel", result["context"])
+        self.assertIn("keine echte ABRP-/Live-Ladeplanung", result["context"])
         self.assertIn("Datenquelle (Research Guard): Google Maps Platform Routes/Places", result["context"])
         self.assertEqual(guard.DECISIONS[-1]["action"], "injected")
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning")
@@ -1351,6 +1355,8 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertIn("Research Guard: Routen-Follow-up", result["context"])
         self.assertIn("Example Fast Charge", result["context"])
+        self.assertIn("keine optimierte Stoppreihenfolge", result["context"])
+        self.assertIn("Erfinde keine zusätzlichen Ladeparks", result["context"])
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-followup-context")
 
     def test_route_followup_refreshes_google_for_return_trip(self):
