@@ -888,6 +888,140 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Strukturierte Tracklist-Kandidaten", context)
         self.assertIn("2. Don't Stay", context)
 
+    def test_route_planning_prompt_detection_and_extraction(self):
+        prompt = "Plane eine Fahrt von Forchheim nach Berlin mit Ladeplanung für ein E-Auto."
+
+        self.assertTrue(guard._is_route_planning_prompt(prompt))
+        self.assertFalse(guard._is_route_planning_prompt("Wo liegt Forchheim?"))
+        self.assertFalse(guard._is_route_planning_prompt("Plane eine Route von Forchheim nach Berlin mit Tankplanung."))
+
+        request = guard._extract_route_request(prompt)
+        self.assertEqual(request["origin"], "Forchheim")
+        self.assertEqual(request["destination"], "Berlin")
+        self.assertIn("ladeplanung", request["preferences"]["ev_or_fuel_terms_detected"])
+
+    def test_enabled_route_planning_without_api_key_injects_guardrail_context(self):
+        guard.DECISIONS.clear()
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        old_rg_key = os.environ.get("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY")
+        try:
+            os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = "true"
+            os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            os.environ.pop("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY", None)
+
+            result = guard.pre_llm_research_guard(
+                "s1",
+                "Plane eine Route von Forchheim nach Berlin mit Ladeplanung für ein E-Auto.",
+                "qwen3",
+                "ollama",
+            )
+        finally:
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+            if old_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_key
+            if old_rg_key is None:
+                os.environ.pop("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["RESEARCH_GUARD_GOOGLE_MAPS_API_KEY"] = old_rg_key
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("Routenplanung nicht ausgeführt", result["context"])
+        self.assertIn("Google Maps API key", result["context"])
+        self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning-missing-api-key")
+
+    def test_route_planning_context_is_injected_from_google_payload(self):
+        guard.DECISIONS.clear()
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        original_payload = guard._route_planning_payload
+        try:
+            os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = "true"
+            os.environ["GOOGLE_MAPS_API_KEY"] = "test-key"
+            guard._route_planning_payload = lambda origin, destination: {
+                "success": True,
+                "provider": "google-maps",
+                "origin": origin,
+                "destination": destination,
+                "route": {
+                    "distance_meters": 410000,
+                    "duration_seconds": 14400,
+                    "static_duration_seconds": 13800,
+                },
+                "chargers": [
+                    {
+                        "name": "Example Fast Charge",
+                        "address": "A9 Rastanlage Beispiel",
+                        "rating": 4.4,
+                        "google_maps_uri": "https://maps.google.com/?cid=123",
+                        "connectors": [
+                            {
+                                "type": "EV_CONNECTOR_TYPE_CCS_COMBO_2",
+                                "count": 4,
+                                "available_count": 2,
+                                "max_charge_rate_kw": 300,
+                            }
+                        ],
+                    }
+                ],
+                "warnings": [],
+                "cached": False,
+                "cache_key": "route=test",
+            }
+
+            result = guard.pre_llm_research_guard(
+                "s1",
+                "Plane eine Route von Forchheim nach Berlin mit Ladeplanung für ein E-Auto.",
+                "qwen3",
+                "ollama",
+            )
+        finally:
+            guard._route_planning_payload = original_payload
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+            if old_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_key
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("Research Guard: Routen-Kontext", result["context"])
+        self.assertIn("410 km", result["context"])
+        self.assertIn("Example Fast Charge", result["context"])
+        self.assertIn("Datenquelle (Research Guard): Google Maps Platform Routes/Places", result["context"])
+        self.assertEqual(guard.DECISIONS[-1]["action"], "injected")
+        self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning")
+        self.assertEqual(guard.DECISIONS[-1]["route_planning"]["charger_candidate_count"], 1)
+
+    def test_route_planning_status_reports_config(self):
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        old_key = os.environ.get("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY")
+        try:
+            os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = "true"
+            os.environ["RESEARCH_GUARD_GOOGLE_MAPS_API_KEY"] = "test-key"
+            status = json.loads(guard.research_guard_status({"limit": 1}))
+        finally:
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+            if old_key is None:
+                os.environ.pop("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["RESEARCH_GUARD_GOOGLE_MAPS_API_KEY"] = old_key
+
+        self.assertTrue(status["config"]["route_planning"]["enabled"])
+        self.assertTrue(status["config"]["route_planning"]["api_key_configured"])
+        self.assertEqual(status["config"]["route_planning"]["provider"], "google-maps")
+        self.assertFalse(status["config"]["route_planning"]["persistent_cache"])
+
 
 if __name__ == "__main__":
     unittest.main()

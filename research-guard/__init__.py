@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.2"
+__version__ = "0.8.0-beta.3"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -173,6 +173,27 @@ LOCAL_INFRA_RE = re.compile(
     r"|\b(?:ip|ip-adresse|adresse|host|hostname|server|port|tailscale|tailscale-ip)\b"
     r"[\s\S]{0,40}\b[A-ZÄÖÜ][A-Za-zÄÖÜäöüß0-9_-]{2,}\b",
     re.IGNORECASE,
+)
+ROUTE_PLANNING_RE = re.compile(
+    r"\b(route|routenplanung|route\s*planung|strecke|fahrstrecke|fahrt|fahrplanung|"
+    r"road\s*trip|drive|driving|fahren|reiseplanung|trip)\b",
+    re.IGNORECASE,
+)
+EV_OR_FUEL_RE = re.compile(
+    r"\b(e-auto|elektroauto|elektrofahrzeug|electric\s+car|ev|bev|tesla|"
+    r"ladeplanung|laden|lades?äule|lades?aeule|ladestopp|ladestation|charging|charger|"
+    r"ccs|typ\s*2|type\s*2|supercharger|ionity|enbw|aral\s*pulse)\b",
+    re.IGNORECASE,
+)
+ROUTE_FROM_TO_PATTERNS = (
+    re.compile(
+        r"\bvon\s+(.+?)\s+(?:nach|zu)\s+(.+?)(?=\s+(?:mit|inkl(?:usive)?|einschließlich|einschliesslich|und|für|fuer|per|im|in)\b|[?.!]|$)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bfrom\s+(.+?)\s+to\s+(.+?)(?=\s+(?:with|including|and|for|by|in)\b|[?.!]|$)",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -580,6 +601,7 @@ def _decision_was_searched(decision: dict[str, Any]) -> bool:
         and decision.get("provider")
         and any(decision.get(field) is not None for field in (
             "score", "usable_result_count", "blocked_result_count", "fetched_source_count", "cached", "cache_key",
+            "route_planning",
         ))
     )
 
@@ -598,9 +620,11 @@ def _visible_effect(decision: dict[str, Any]) -> str:
 def _reason_summary(decision: dict[str, Any], category: str, searched: bool) -> str:
     reason = str(decision.get("reason") or "")
     if category == "researched_and_injected":
+        if reason == "route-planning":
+            return "Research Guard lief als Routen-/Ladeplanungsquelle und hat Google-Maps-Kontext ergänzt."
         if reason == "explicit":
             return "Research Guard lief, weil die Suche manuell erzwungen wurde."
-        if reason in {"factual-risk", "general-knowledge", "current-fact", "aggressive-question"}:
+        if reason in {"factual-risk", "general-knowledge", "current-fact", "current-facts", "aggressive-question"}:
             return "Research Guard lief, weil die Frage wie eine faktische oder aktuelle Wissensfrage eingestuft wurde."
         return f"Research Guard lief und hat Quellen ergänzt. Auslöser: {reason}."
     if category == "manual_research":
@@ -625,6 +649,8 @@ def _reason_summary(decision: dict[str, Any], category: str, searched: bool) -> 
             "internal-note": "Die Nachricht war eine interne System-/Gateway-Notiz und wurde ignoriert.",
             "non-local model gate": "Research Guard wurde wegen Modell-/Provider-Gate übersprungen.",
             "empty query after cleanup": "Nach Bereinigung blieb keine sinnvolle Suchanfrage übrig.",
+            "route-planning-missing-parameters": "Research Guard erkannte eine Routen-/Ladeplanungsfrage, konnte Start oder Ziel aber nicht sicher bestimmen.",
+            "route-planning-missing-api-key": "Research Guard erkannte eine Routen-/Ladeplanungsfrage, aber der Google Maps API-Key ist nicht konfiguriert.",
         }
         return skip_reasons.get(reason, f"Research Guard hat geprüft, aber nicht gesucht. Grund: {reason}.")
     if searched:
@@ -653,6 +679,8 @@ def _user_explanation(decision: dict[str, Any], category: str, visible_effect: s
 def _provider_path(provider: str | None) -> str | None:
     if not provider:
         return None
+    if provider == "google-maps":
+        return "Google Maps Platform -> Routes/Places"
     if provider == "hermes-web" or provider.startswith("hermes"):
         return f"Hermes Web Search -> {provider}"
     if provider == "web-search-plus":
@@ -664,6 +692,8 @@ def _diagnostic_explanation(decision: dict[str, Any], category: str, searched: b
     action = decision.get("action")
     query = decision.get("query") or "the prompt"
     if category == "researched_and_injected":
+        if decision.get("reason") == "route-planning":
+            return f'Research Guard fetched Google Maps route context for "{query}" and injected it before the model answered.'
         return f'Research Guard searched for "{query}" and injected source context before the model answered.'
     if category == "manual_research":
         return f'Research Guard was explicitly called as a manual search tool for "{query}".'
@@ -723,6 +753,7 @@ def _diagnose_decision(decision: dict[str, Any]) -> dict[str, Any]:
         ("cache_key", "cacheKey"),
         ("model", "model"),
         ("provider_gate", "providerGate"),
+        ("route_planning", "routePlanning"),
     ):
         if field in decision and decision.get(field) is not None:
             evidence.append(f"{label}={decision.get(field)}")
@@ -795,6 +826,418 @@ def _source_summaries(results: list[dict[str, Any]], limit: int = 5) -> list[dic
             }
         summaries.append(summary)
     return summaries
+
+
+def _route_api_key() -> str:
+    return (os.getenv("RESEARCH_GUARD_GOOGLE_MAPS_API_KEY") or os.getenv("GOOGLE_MAPS_API_KEY") or "").strip()
+
+
+def _route_planning_enabled() -> bool:
+    return _env_bool("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", False)
+
+
+def _route_timeout_seconds() -> int:
+    return _env_int("RESEARCH_GUARD_ROUTE_TIMEOUT", 8, 2, 30)
+
+
+def _is_route_planning_prompt(message: str) -> bool:
+    text = _clean_message_for_research(message)
+    if not text or len(text) < 12:
+        return False
+    if NO_RESEARCH_PREFIX_RE.match(text) or SLASH_COMMAND_RE.match(text):
+        return False
+    has_route = bool(ROUTE_PLANNING_RE.search(text) or any(pattern.search(text) for pattern in ROUTE_FROM_TO_PATTERNS))
+    has_ev_or_fuel = bool(EV_OR_FUEL_RE.search(text))
+    return has_route and has_ev_or_fuel
+
+
+def _trim_route_place(value: str) -> str:
+    value = re.sub(r"\s+", " ", value or "").strip(" \t\r\n\"'“”„.,;:!?")
+    value = re.sub(
+        r"\s+\b(?:mit|inkl(?:usive)?|einschließlich|einschliesslich|und|für|fuer|per|im|in|"
+        r"with|including|and|for|by)\b[\s\S]*$",
+        "",
+        value,
+        flags=re.IGNORECASE,
+    ).strip(" \t\r\n\"'“”„.,;:!?")
+    return value[:160]
+
+
+def _extract_route_request(message: str) -> dict[str, Any]:
+    text = _clean_message_for_research(message)
+    origin = ""
+    destination = ""
+    for pattern in ROUTE_FROM_TO_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            origin = _trim_route_place(match.group(1))
+            destination = _trim_route_place(match.group(2))
+            break
+    preferences = {
+        "ev_or_fuel_terms_detected": sorted(set(match.group(0).lower() for match in EV_OR_FUEL_RE.finditer(text)))[:8],
+        "route_terms_detected": sorted(set(match.group(0).lower() for match in ROUTE_PLANNING_RE.finditer(text)))[:8],
+    }
+    battery_match = re.search(r"\b(\d{2,3})\s*kwh\b", text, flags=re.IGNORECASE)
+    if battery_match:
+        preferences["battery_kwh"] = int(battery_match.group(1))
+    consumption_match = re.search(r"\b(\d{1,2}(?:[,.]\d+)?)\s*kwh\s*/\s*100\s*km\b", text, flags=re.IGNORECASE)
+    if consumption_match:
+        preferences["consumption_kwh_per_100km"] = float(consumption_match.group(1).replace(",", "."))
+    soc_match = re.search(r"\b(?:soc|akku|batterie|start)\s*(?:bei|mit|=|:)?\s*(\d{1,3})\s*%", text, flags=re.IGNORECASE)
+    if soc_match:
+        preferences["start_soc_percent"] = max(0, min(100, int(soc_match.group(1))))
+    return {
+        "origin": origin,
+        "destination": destination,
+        "preferences": {key: value for key, value in preferences.items() if value not in (None, "", [])},
+        "prompt": text,
+    }
+
+
+def _parse_google_duration_seconds(value: Any) -> int | None:
+    if isinstance(value, (int, float)):
+        return int(value)
+    match = re.match(r"^(\d+(?:\.\d+)?)s$", str(value or "").strip())
+    if match:
+        return int(float(match.group(1)))
+    return None
+
+
+def _format_duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "unbekannt"
+    minutes = max(0, int(round(seconds / 60)))
+    hours, rest = divmod(minutes, 60)
+    if hours and rest:
+        return f"{hours} h {rest} min"
+    if hours:
+        return f"{hours} h"
+    return f"{rest} min"
+
+
+def _format_distance(meters: Any) -> str:
+    try:
+        km = float(meters) / 1000
+    except Exception:
+        return "unbekannt"
+    if km >= 100:
+        return f"{km:.0f} km"
+    return f"{km:.1f} km"
+
+
+def _decode_polyline(value: str) -> list[dict[str, float]]:
+    points: list[dict[str, float]] = []
+    index = 0
+    lat = 0
+    lng = 0
+    while index < len(value or ""):
+        coordinates = []
+        for _ in range(2):
+            shift = 0
+            result = 0
+            while index < len(value):
+                byte = ord(value[index]) - 63
+                index += 1
+                result |= (byte & 0x1F) << shift
+                shift += 5
+                if byte < 0x20:
+                    break
+            coordinates.append(~(result >> 1) if result & 1 else result >> 1)
+        if len(coordinates) == 2:
+            lat += coordinates[0]
+            lng += coordinates[1]
+            points.append({"latitude": lat / 1e5, "longitude": lng / 1e5})
+    return points
+
+
+def _sample_route_points(points: list[dict[str, float]], count: int) -> list[dict[str, float]]:
+    if not points:
+        return []
+    count = max(1, min(count, len(points)))
+    if count == 1:
+        return [points[len(points) // 2]]
+    indexes = sorted({round(idx * (len(points) - 1) / (count - 1)) for idx in range(count)})
+    return [points[int(index)] for index in indexes]
+
+
+def _json_post(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: int) -> dict[str, Any]:
+    data = json.dumps(payload).encode("utf-8")
+    request = Request(url, data=data, method="POST", headers={**headers, "Content-Type": "application/json"})
+    with urlopen(request, timeout=timeout) as resp:
+        raw = resp.read(1_000_000).decode("utf-8", "ignore")
+    return json.loads(raw) if raw else {}
+
+
+def _google_routes_compute(origin: str, destination: str, api_key: str) -> dict[str, Any]:
+    language = os.getenv("RESEARCH_GUARD_ROUTE_LANGUAGE", "de-DE").strip() or "de-DE"
+    payload = {
+        "origin": {"address": origin},
+        "destination": {"address": destination},
+        "travelMode": "DRIVE",
+        "routingPreference": "TRAFFIC_AWARE",
+        "computeAlternativeRoutes": False,
+        "languageCode": language,
+    }
+    headers = {
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": (
+            "routes.distanceMeters,routes.duration,routes.staticDuration,"
+            "routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration,"
+            "routes.legs.staticDuration,routes.legs.startLocation,routes.legs.endLocation"
+        ),
+    }
+    return _json_post(
+        "https://routes.googleapis.com/directions/v2:computeRoutes",
+        payload,
+        headers,
+        _route_timeout_seconds(),
+    )
+
+
+def _google_places_nearby_ev_chargers(point: dict[str, float], api_key: str, limit: int) -> list[dict[str, Any]]:
+    radius = _env_int("RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000)
+    payload = {
+        "includedTypes": ["electric_vehicle_charging_station"],
+        "maxResultCount": max(1, min(limit, 20)),
+        "locationRestriction": {
+            "circle": {
+                "center": {"latitude": point["latitude"], "longitude": point["longitude"]},
+                "radius": radius,
+            }
+        },
+    }
+    headers = {
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": (
+            "places.displayName,places.formattedAddress,places.location,places.rating,"
+            "places.evChargeOptions,places.googleMapsUri"
+        ),
+    }
+    data = _json_post("https://places.googleapis.com/v1/places:searchNearby", payload, headers, _route_timeout_seconds())
+    return data.get("places") if isinstance(data.get("places"), list) else []
+
+
+def _normalize_charger(place: dict[str, Any], sample_index: int) -> dict[str, Any]:
+    display_name = place.get("displayName") if isinstance(place.get("displayName"), dict) else {}
+    name = display_name.get("text") or place.get("name") or "EV charging station"
+    ev_options = place.get("evChargeOptions") if isinstance(place.get("evChargeOptions"), dict) else {}
+    connectors = []
+    for item in ev_options.get("connectorAggregation") or []:
+        if not isinstance(item, dict):
+            continue
+        connectors.append({
+            "type": item.get("type"),
+            "count": item.get("count"),
+            "available_count": item.get("availableCount"),
+            "out_of_service_count": item.get("outOfServiceCount"),
+            "max_charge_rate_kw": item.get("maxChargeRateKw"),
+        })
+    return {
+        "name": str(name)[:160],
+        "address": str(place.get("formattedAddress") or "")[:240],
+        "rating": place.get("rating"),
+        "google_maps_uri": place.get("googleMapsUri"),
+        "connectors": connectors[:8],
+        "sample_index": sample_index,
+    }
+
+
+def _dedupe_chargers(chargers: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for charger in chargers:
+        key = str(charger.get("google_maps_uri") or f"{charger.get('name')}|{charger.get('address')}").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(charger)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _route_planning_payload(origin: str, destination: str) -> dict[str, Any]:
+    api_key = _route_api_key()
+    route_data = _google_routes_compute(origin, destination, api_key)
+    routes = route_data.get("routes") if isinstance(route_data.get("routes"), list) else []
+    if not routes:
+        raise RuntimeError("Google Routes returned no route")
+    route = routes[0]
+    polyline = ((route.get("polyline") or {}).get("encodedPolyline") or "")
+    points = _decode_polyline(polyline)
+    sample_count = _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5)
+    charger_limit = _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12)
+    warnings: list[str] = []
+    chargers: list[dict[str, Any]] = []
+    if not points:
+        warnings.append("Routes response did not include a usable route polyline; EV charger search was skipped.")
+    else:
+        per_search_limit = max(1, min(6, charger_limit))
+        for idx, point in enumerate(_sample_route_points(points, sample_count), 1):
+            try:
+                places = _google_places_nearby_ev_chargers(point, api_key, per_search_limit)
+                chargers.extend(_normalize_charger(place, idx) for place in places if isinstance(place, dict))
+            except Exception as exc:
+                warnings.append(f"EV charger lookup near route sample {idx} failed: {exc}")
+    payload = {
+        "success": True,
+        "provider": "google-maps",
+        "origin": origin,
+        "destination": destination,
+        "route": {
+            "distance_meters": route.get("distanceMeters"),
+            "duration_seconds": _parse_google_duration_seconds(route.get("duration")),
+            "static_duration_seconds": _parse_google_duration_seconds(route.get("staticDuration")),
+        },
+        "chargers": _dedupe_chargers(chargers, charger_limit),
+        "warnings": warnings,
+        "cached": False,
+    }
+    return payload
+
+
+def _format_route_context(payload: dict[str, Any], request: dict[str, Any], model: str | None) -> str:
+    route = payload.get("route") if isinstance(payload.get("route"), dict) else {}
+    chargers = payload.get("chargers") if isinstance(payload.get("chargers"), list) else []
+    preferences = request.get("preferences") if isinstance(request.get("preferences"), dict) else {}
+    lines = [
+        "[Research Guard aktiv]",
+        "Für diese aktuelle Nutzerfrage wurde automatisch Routen-Kontext aus Google Maps Platform abgerufen.",
+        "Diese Research-Guard-Anweisung gilt nur für diesen aktuellen Turn mit frisch angehängtem `[Research Guard: Routen-Kontext]`.",
+        "Research-Guard-Kontexte, Quellenlisten, Statusdaten oder Diagnoseblöcke aus früheren Turns sind für die aktuelle Antwort ungültig.",
+        "Behaupte niemals, du hättest keine Routendaten erhalten, wenn dieser Routen-Kontext vorhanden ist.",
+        "[/Research Guard aktiv]",
+        "",
+        "[Research Guard: Routen-Kontext]",
+        f"Auslöser: route-planning; Modell: {model or 'unknown'}; Provider: {payload.get('provider')}; Cache: {bool(payload.get('cached'))}",
+        f"Start: {payload.get('origin') or request.get('origin') or 'unbekannt'}",
+        f"Ziel: {payload.get('destination') or request.get('destination') or 'unbekannt'}",
+        f"Route laut Google Routes: {_format_distance(route.get('distance_meters'))}; Fahrtzeit mit Verkehr: {_format_duration(route.get('duration_seconds'))}; ohne/typisch: {_format_duration(route.get('static_duration_seconds'))}.",
+        "Datenquelle: Google Maps Platform Routes API und, falls Ladepunkte vorhanden sind, Places API EV charging station search.",
+        "Wichtige Grenze: Das ist eine grobe Routen- und Ladepunkt-Grundlage, keine garantierte optimale EV-Ladeplanung.",
+        "Erfinde keine exakten SoC-Verläufe, Ladezeiten, Preise, Verfügbarkeit oder optimale Stopps, wenn Fahrzeugdaten oder Live-Verfügbarkeiten fehlen.",
+        "Wenn Akku, Verbrauch, Start-SoC, gewünschter Ziel-SoC oder Ladeleistung fehlen, nenne realistische Annahmen ausdrücklich oder frage kurz nach.",
+        "Wenn du Ladepunkte nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte funktionierende Stopps.",
+    ]
+    if preferences:
+        lines.append(f"Erkannte Nutzerparameter: {json.dumps(preferences, ensure_ascii=False)}")
+    if payload.get("warnings"):
+        lines.append(f"Hinweise: {' '.join(str(item) for item in payload.get('warnings') or [])}")
+    if chargers:
+        lines.extend(["", "Ladepunkt-Kandidaten aus Places:"])
+        for idx, charger in enumerate(chargers, 1):
+            connector_text = []
+            for connector in charger.get("connectors") or []:
+                pieces = [str(connector.get("type") or "connector")]
+                if connector.get("max_charge_rate_kw") is not None:
+                    pieces.append(f"bis {connector.get('max_charge_rate_kw')} kW")
+                if connector.get("available_count") is not None or connector.get("count") is not None:
+                    pieces.append(f"frei/gesamt {connector.get('available_count', '?')}/{connector.get('count', '?')}")
+                connector_text.append(" ".join(pieces))
+            details = f"; Anschlüsse: {'; '.join(connector_text)}" if connector_text else ""
+            url = f"; Maps: {charger.get('google_maps_uri')}" if charger.get("google_maps_uri") else ""
+            rating = f"; Rating: {charger.get('rating')}" if charger.get("rating") is not None else ""
+            lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{url}")
+    else:
+        lines.extend([
+            "",
+            "Ladepunkt-Kandidaten: Keine verwertbaren Places-Ergebnisse im Routen-Kontext.",
+            "Antworte daher besonders vorsichtig und plane Ladepunkte nicht als Fakten ein.",
+        ])
+    lines.extend([
+        "",
+        "Antwortpflicht: Nenne am Ende kurz `Datenquelle (Research Guard): Google Maps Platform Routes/Places`.",
+        "[/Research Guard: Routen-Kontext]",
+    ])
+    return "\n".join(lines)
+
+
+def _format_route_unavailable_context(request: dict[str, Any], reason: str) -> str:
+    lines = [
+        "[Research Guard: Routenplanung nicht ausgeführt]",
+        "Der Nutzer fragt nach Routen- oder Ladeplanung, aber Research Guard konnte keine Google-Routendaten abrufen.",
+        f"Grund: {reason}",
+        f"Start erkannt: {request.get('origin') or 'unbekannt'}",
+        f"Ziel erkannt: {request.get('destination') or 'unbekannt'}",
+        "Antworte nicht so, als lägen Live-Routen-, Verkehrs- oder Ladepunktdaten vor.",
+        "Wenn Start oder Ziel fehlen, frage gezielt danach.",
+        "Wenn nur der API-Key fehlt, erkläre knapp, dass für diese Hermes-Research-Guard-Funktion `GOOGLE_MAPS_API_KEY` oder `RESEARCH_GUARD_GOOGLE_MAPS_API_KEY` gesetzt sein muss.",
+        "[/Research Guard: Routenplanung nicht ausgeführt]",
+    ]
+    return "\n".join(lines)
+
+
+def _route_planning_response(user_message: str, model: str | None, provider: str | None, query_debug: dict[str, Any]) -> dict[str, str] | None:
+    if not _is_route_planning_prompt(user_message) or not _route_planning_enabled():
+        return None
+    request = _extract_route_request(user_message)
+    if not request.get("origin") or not request.get("destination"):
+        _record_decision(
+            "skipped",
+            "route-planning-missing-parameters",
+            model=model,
+            provider="google-maps",
+            query_debug=query_debug,
+            route_planning={"origin": request.get("origin"), "destination": request.get("destination")},
+            prompt=request.get("prompt", "")[:180],
+        )
+        return {"context": _format_route_unavailable_context(request, "Start und Ziel konnten nicht sicher erkannt werden.")}
+    if not _route_api_key():
+        _record_decision(
+            "skipped",
+            "route-planning-missing-api-key",
+            model=model,
+            provider="google-maps",
+            query=f"{request.get('origin')} -> {request.get('destination')}",
+            query_debug=query_debug,
+            route_planning={"origin": request.get("origin"), "destination": request.get("destination")},
+        )
+        return {"context": _format_route_unavailable_context(request, "Google Maps API key ist nicht konfiguriert.")}
+    try:
+        payload = _route_planning_payload(str(request["origin"]), str(request["destination"]))
+    except Exception as exc:
+        _record_decision(
+            "failed",
+            "route-planning-api-failed",
+            model=model,
+            provider="google-maps",
+            query=f"{request.get('origin')} -> {request.get('destination')}",
+            query_debug=query_debug,
+            error=str(exc),
+            route_planning={"origin": request.get("origin"), "destination": request.get("destination")},
+        )
+        return {"context": _format_route_unavailable_context(request, f"Google Maps API Fehler: {exc}")}
+    route = payload.get("route") if isinstance(payload.get("route"), dict) else {}
+    _record_decision(
+        "injected",
+        "route-planning",
+        model=model,
+        provider=payload.get("provider"),
+        query=f"{request.get('origin')} -> {request.get('destination')}",
+        query_debug=query_debug,
+        cached=payload.get("cached"),
+        route_planning={
+            "origin": payload.get("origin"),
+            "destination": payload.get("destination"),
+            "distance_meters": route.get("distance_meters"),
+            "duration_seconds": route.get("duration_seconds"),
+            "charger_candidate_count": len(payload.get("chargers") or []),
+            "warnings": payload.get("warnings") or [],
+        },
+        sources=[
+            {
+                "title": "Google Maps Platform Routes API",
+                "url": "https://developers.google.com/maps/documentation/routes",
+                "snippet": "Route distance, duration, and route polyline.",
+            },
+            {
+                "title": "Google Maps Platform Places API EV charging",
+                "url": "https://developers.google.com/maps/documentation/places/web-service/place-data-fields",
+                "snippet": "EV charging station metadata and connector options when available.",
+            },
+        ],
+    )
+    return {"context": _format_route_context(payload, request, model)}
 
 
 def _normalize_hostname(value: str) -> str:
@@ -1971,6 +2414,16 @@ def _config_snapshot() -> dict[str, Any]:
         "inject_no_research_boundary": _env_bool("RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY", False),
         "preferred_domains": _env_list("RESEARCH_GUARD_PREFERRED_DOMAINS"),
         "blocked_domains": _env_list("RESEARCH_GUARD_BLOCKED_DOMAINS"),
+        "route_planning": {
+            "enabled": _route_planning_enabled(),
+            "provider": "google-maps",
+            "api_key_configured": bool(_route_api_key()),
+            "timeout_seconds": _route_timeout_seconds(),
+            "persistent_cache": False,
+            "max_charger_searches": _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5),
+            "max_chargers": _env_int("RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12),
+            "charger_radius_meters": _env_int("RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000),
+        },
     }
 
 
@@ -2089,7 +2542,10 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
         return {"context": _format_source_followup_context()}
     if reason == "context-followup":
         return {"context": _format_context_followup_context()}
-    if _should_skip_for_model_gate(model, provider, should, reason):
+    route_trigger = reason != "opt-out" and _is_route_planning_prompt(user_message) and _route_planning_enabled()
+    gate_should_research = should or route_trigger
+    gate_reason = "route-planning" if route_trigger else reason
+    if _should_skip_for_model_gate(model, provider, gate_should_research, gate_reason):
         _record_decision(
             "skipped",
             "non-local model gate",
@@ -2098,12 +2554,15 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
             provider_gate={
                 "only_local": _env_bool("RESEARCH_GUARD_ONLY_LOCAL", True),
                 "allow_cloud_research_triggers": _env_bool("RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS", False),
-                "classification": {"should_research": should, "reason": reason},
+                "classification": {"should_research": gate_should_research, "reason": gate_reason},
             },
             query_debug=query_debug,
             prompt=current_prompt[:180],
         )
         return _no_research_response("non-local model gate", current_prompt, model, provider)
+    route_response = _route_planning_response(user_message, model, provider, query_debug)
+    if route_response is not None:
+        return route_response
     if not should:
         _record_decision("skipped", reason, model=model, provider=provider, query_debug=query_debug, prompt=current_prompt[:180])
         return _no_research_response(reason, current_prompt, model, provider)

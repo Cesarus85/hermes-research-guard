@@ -1,5 +1,51 @@
 # Release Notes
 
+## v0.8.0-beta.3
+
+This beta adds an optional Google Maps route-planning datasource for Hermes Research Guard. The plugin is still a **Hermes Agent plugin only**; there is no standalone runtime or standalone installation path.
+
+### New
+
+- Optional route-planning trigger for prompts that ask for route, driving, or EV charging planning.
+- Google Routes API integration for driving distance, traffic-aware duration, static duration, and route polyline.
+- Google Places API Nearby Search integration for EV charging-station candidates near sampled route points.
+- Route-planning diagnostics in `research_guard_status`, including enabled state, key configuration, persistent-cache status, sampled charger searches, max injected chargers, and search radius.
+- Route-specific guardrails telling the model to avoid inventing exact SoC curves, charger availability, prices, optimal stops, or charge times.
+- No persistent storage of Google Routes/Places payloads in the Research Guard web-search cache.
+
+### Disabled By Default
+
+The route-planning datasource is off by default:
+
+```bash
+export RESEARCH_GUARD_ENABLE_ROUTE_PLANNING=true
+export GOOGLE_MAPS_API_KEY="your-google-maps-platform-key"
+```
+
+Google Maps Platform generally requires a billing-enabled Google Cloud project. For low usage, requests may fit within Google Maps Platform monthly free usage caps, but operators should still set quotas and budgets before enabling this feature.
+
+Route/Places payloads are not persisted by Research Guard. Cost control is handled through explicit opt-in, per-request timeouts, sampled route points, and capped charger candidates.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.3
+```
+
+Expected tests:
+
+```text
+Ran 49 tests
+OK
+```
+
 ## v0.8.0-beta.2
 
 This is the second public beta candidate for Hermes Research Guard. It clarifies the project scope: this repository contains a **Hermes Agent plugin**, not a standalone application.

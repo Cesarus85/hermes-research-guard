@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.2`
+**Beta release:** `v0.8.0-beta.3`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -24,6 +24,7 @@ What is considered beta-stable:
 - source scoring with official, municipal, documentation, vendor, project, package registry, release-note, pricing, standards, and reference signals
 - weak-source demotion for aggregators, forums/social pages, scraper-like results, paywall/snippet-only pages, listicles, coupons, duplicate URLs, and repeated same-domain evidence
 - structured deep fetch for tracklists, tables, release notes, prices, benchmarks, population facts, and other detail-heavy prompts
+- optional Google Maps route context for rough route, traffic-duration, and EV charging-station prompts
 - context follow-up handling for questions such as "Where did you get that from?" or "What do you think about it?"
 - `research_guard_status` and `research_guard_diagnostics` diagnostics
 - compact status explanations showing why Research Guard ran or skipped
@@ -38,6 +39,7 @@ Known beta limitations:
 - Hermes injects plugin context into the current user message, not the system prompt.
 - The no-research boundary is disabled by default because some local model UIs expose injected skip-context as visible reasoning.
 - There is no standalone runtime; Hermes is required for automatic operation.
+- Optional Google Maps route planning is not a full EV planner and does not guarantee charger availability, prices, optimal stops, or vehicle-specific charge times.
 
 ## How It Works
 
@@ -51,8 +53,9 @@ Research Guard registers a Hermes `pre_llm_call` hook. For each user message it:
 6. Searches through the configured provider chain.
 7. Scores and filters sources.
 8. Optionally deep-fetches top pages for structured/detail prompts.
-9. Injects a compact Research Guard context block into the current user turn.
-10. Records the decision in an in-memory status buffer.
+9. Optionally fetches Google Maps Routes/Places context for route and EV charging prompts when explicitly enabled.
+10. Injects a compact Research Guard context block into the current user turn.
+11. Records the decision in an in-memory status buffer.
 
 The plugin intentionally does not modify the system prompt.
 
@@ -77,7 +80,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.2
+version: 0.8.0-beta.3
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -114,7 +117,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.2
+version: 0.8.0-beta.3
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -191,6 +194,12 @@ Optional environment variables:
 | `RESEARCH_GUARD_DEEP_FETCH_MAX_PAGES` | `2` | Number of top scored sources to fetch, clamped 1-3 |
 | `RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS` | `3500` | Characters per fetched source excerpt, clamped 800-8000 |
 | `RESEARCH_GUARD_DEEP_FETCH_TIMEOUT` | `5` | Timeout per fetched source in seconds |
+| `RESEARCH_GUARD_ENABLE_ROUTE_PLANNING` | `false` | Enable optional Google Maps route and EV charging context for route-planning prompts |
+| `GOOGLE_MAPS_API_KEY` / `RESEARCH_GUARD_GOOGLE_MAPS_API_KEY` | empty | Google Maps Platform key for the optional route-planning datasource |
+| `RESEARCH_GUARD_ROUTE_TIMEOUT` | `8` | Timeout for Google Routes/Places requests in seconds |
+| `RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES` | `3` | Number of sampled route points to query for EV chargers, clamped 1-5 |
+| `RESEARCH_GUARD_ROUTE_MAX_CHARGERS` | `6` | Maximum EV charger candidates to inject, clamped 1-12 |
+| `RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS` | `8000` | Nearby-search radius for EV charger candidates, clamped 1000-50000 |
 
 Built-in local model patterns:
 
@@ -224,6 +233,26 @@ All providers are normalized into:
 ```
 
 Cache keys include provider, result count, deep-fetch profile, and normalized query text so fallback-provider results do not collide with Hermes-provider results.
+
+## Optional Route Planning
+
+Hermes Research Guard can optionally use Google Maps Platform as a specialized datasource for route, traffic-duration, and EV charging prompts. This is disabled by default because Google Maps Platform requires an API key and a billing-enabled project.
+
+Enable it only after setting quotas or budgets in Google Cloud:
+
+```bash
+export RESEARCH_GUARD_ENABLE_ROUTE_PLANNING=true
+export GOOGLE_MAPS_API_KEY="your-google-maps-platform-key"
+```
+
+The feature currently uses:
+
+- Routes API for driving distance, duration, traffic-aware route data, and route polyline
+- Places API Nearby Search for `electric_vehicle_charging_station` candidates near sampled route points
+
+It intentionally injects guardrails into Hermes: the model is told to treat the result as a rough route and charger-candidate basis, not as a guaranteed EV planner. It must not invent exact state-of-charge curves, charger availability, prices, or charge times unless the user supplied enough vehicle data and the source data actually supports it.
+
+Route/Places payloads are not written to Research Guard's persistent web-search cache. This keeps the Hermes plugin conservative with Google Maps Platform caching and storage policies. Cost control comes from explicit opt-in, per-request timeouts, a small number of sampled route points, and capped charger candidates.
 
 ## Source Quality
 

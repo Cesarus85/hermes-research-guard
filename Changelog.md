@@ -1,3 +1,14 @@
+## 2026-05-16 - Optionale Google-Maps-Routenquelle ergänzt
+- **Typ:** feature
+- **Feature:** Optionales Route-Planning-Modul für Hermes Research Guard ergänzt. Es erkennt Routen-, Fahrstrecken- und EV-Ladeplanungsfragen und kann Google Maps Platform als spezialisierte Datenquelle nutzen.
+- **Datenquellen:** Google Routes API liefert Distanz, Fahrtzeit und Route-Polyline. Google Places API sucht EV-Ladepunkt-Kandidaten an gesampelten Punkten entlang der Route.
+- **Sicherheit:** Das Feature ist standardmäßig deaktiviert und benötigt `RESEARCH_GUARD_ENABLE_ROUTE_PLANNING=true` plus `GOOGLE_MAPS_API_KEY` oder `RESEARCH_GUARD_GOOGLE_MAPS_API_KEY`.
+- **Guardrails:** Injizierter Kontext weist lokale Modelle ausdrücklich an, keine exakten SoC-Verläufe, Ladezeiten, Preise, Verfügbarkeiten oder optimalen Stopps zu erfinden.
+- **Kostenkontrolle:** Keine persistente Speicherung von Google-Routes/Places-Payloads; Charger-Suchen, Radius und Ergebniszahl sind per Environment-Variable begrenzt.
+- **Status:** `research_guard_status` zeigt Route-Planning-Konfiguration, API-Key-Status und neue Entscheidungsdiagnostik.
+- **Version:** Plugin version raised to `0.8.0-beta.3`.
+- **Tests:** Test suite expanded from 45 to 49 dependency-free tests.
+
 ## 2026-05-16 - Clarify Hermes-only beta scope
 - **Type:** beta/docs
 - **Change:** README and release notes now clearly state that this project is a Hermes Agent plugin and requires Hermes.
