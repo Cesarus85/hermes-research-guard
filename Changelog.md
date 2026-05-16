@@ -1,3 +1,11 @@
+## 2026-05-16 - First beta repository preparation
+- **Type:** beta/release-prep
+- **Change:** README has been rewritten in English as a beta-facing project overview.
+- **Install docs:** Added explicit installation instructions for Hermes and standalone/non-Hermes usage.
+- **Beta scope:** Added beta status, known limitations, quick verification, configuration, provider chain, source-quality behavior, privacy boundaries, and roadmap notes.
+- **Release notes:** Added `RELEASE_NOTES.md` for `v0.8.0-beta.1`.
+- **Version:** Plugin version raised to `0.8.0-beta.1`.
+
 ## 2026-05-16 - Kompakte Status-Erklärung portiert
 - **Typ:** feature
 - **Auslöser:** Letzter offensichtlicher Angleichungspunkt zur OpenClaw-Variante.

@@ -1,77 +1,186 @@
 # Hermes Research Guard
 
-A lightweight Hermes Agent plugin that automatically performs web research before local/small models answer factual or current-information questions.
+**Beta release:** `v0.8.0-beta.1`
 
-It is meant for setups where models like Qwen, Llama, Mistral, Gemma, Phi, or Ollama-hosted models are excellent at reasoning but may hallucinate or lack fresh facts.
+Hermes Research Guard is a lightweight pre-answer research plugin for local and small LLM setups. It runs a web search before the model answers factual or current-information questions, ranks the sources, and injects a compact evidence block into the current prompt.
 
-## What it does
+It is designed for agents using models such as Qwen, Llama, Mistral, Gemma, Phi, Ollama-hosted models, LM Studio, vLLM, TGI, llama.cpp, MLX, or other local providers that reason well but may lack fresh facts.
 
-- Registers a `pre_llm_call` hook.
-- Detects local/small models by model and provider heuristics, including local providers such as Ollama, LM Studio, vLLM, TGI, llama.cpp, MLX, and Goliath.
-- Skips explicit cloud markers such as Ollama `:cloud` unless manually forced or configured otherwise.
-- Detects factual, general-knowledge, and current-information questions.
-- Skips likely local, personal, coding, file, terminal, and writing tasks.
-- Skips local infrastructure prompts such as IP addresses, hosts, ports, SSH, ping, Tailscale, reachability, and service-status questions.
-- Cleans common speech/STT wrappers such as `Audio:`, `Voice:`, `Transkript:`, and `Sprachnachricht:` before classification and search query building.
-- Searches the web before the model answers.
-- Scores sources before injection: official, municipal, government, documentation, vendor/project, and reference sources are preferred; aggregators, forums/social pages, paywalls, listicles, duplicates, and repeated same-domain hits are downgraded.
-- Injects compact source context into the user message, not the system prompt.
-- Adds a compact confidence/evidence-diversity summary to the injected context.
-- Tells the model to cite Research Guard sources when context was injected.
-- Adds an explicit active-turn boundary when research ran, and an inactive-turn boundary when research was skipped or blocked, so old Research Guard sources are not reused for later answers.
-- Keeps a small in-memory decision buffer so source follow-ups such as `Wo hast du die Info her?` can be answered from the previous Research Guard decision instead of triggering a fresh search for the follow-up itself.
-- Detects context/opinion follow-ups such as `Was hältst du davon?` and reuses the last Research Guard topic instead of searching the literal follow-up phrase.
-- Carries a prior subject from Hermes `conversation_history`, `messages`, or `history` into pronoun/demonstrative follow-up search queries such as `Was ist mit ihm danach passiert?`.
-- Exposes manual `research_guard_search`, `research_guard_status`, and `research_guard_diagnostics` tools for debugging/manual use. Status v2 includes cache stats, config snapshot, decision categories, visible effect, OpenClaw-style nested diagnostics, evidence strings, source-quality fields, summary, legend, response policy, and redacted query-building diagnostics.
-- Detects direct status requests such as `Zeig mir den Research Guard Status` and injects the same diagnostics even when Hermes does not trigger the status tool call itself. Internal Hermes notes such as model-switch or gateway-restart markers are skipped instead of being researched.
+## Beta Status
 
-This keeps system prompts stable and preserves prompt-cache efficiency.
+This repository is ready for a first public beta. The core behavior is implemented and covered by dependency-free tests, but the project should still be treated as experimental in production-like agent setups.
 
-## Install
+What is considered beta-stable:
 
-For a fresh install, copy the plugin folder into your Hermes user plugin directory:
+- automatic research for local/small models
+- manual `/research` and `/no-research` controls
+- provider chain: optional `web_search_plus`, Brave, Hermes web search, SearXNG, DuckDuckGo HTML
+- provider-aware cache keys and cache cleanup
+- source scoring with official, municipal, documentation, vendor, project, package registry, release-note, pricing, standards, and reference signals
+- weak-source demotion for aggregators, forums/social pages, scraper-like results, paywall/snippet-only pages, listicles, coupons, duplicate URLs, and repeated same-domain evidence
+- structured deep fetch for tracklists, tables, release notes, prices, benchmarks, population facts, and other detail-heavy prompts
+- context follow-up handling for questions such as "Where did you get that from?" or "What do you think about it?"
+- `research_guard_status` and `research_guard_diagnostics` diagnostics
+- compact status explanations showing why Research Guard ran or skipped
+- tests passing locally
+
+Known beta limitations:
+
+- Research Guard improves grounding, but it cannot guarantee truth.
+- Local models can still ignore or misread injected sources.
+- Trigger detection is heuristic and will never be perfect.
+- High-stakes handling for medical, legal, financial, and safety-critical prompts is not finished.
+- Hermes injects plugin context into the current user message, not the system prompt.
+- The no-research boundary is disabled by default because some local model UIs expose injected skip-context as visible reasoning.
+
+## How It Works
+
+Research Guard registers a Hermes `pre_llm_call` hook. For each user message it:
+
+1. Cleans wrappers such as `Audio:`, `Voice:`, `Transcript:`, and `Transkript:`.
+2. Checks whether the prompt should trigger research.
+3. Skips private, local, coding, file, terminal, memory, and infrastructure prompts.
+4. Applies the local/cloud model gate.
+5. Rewrites factual prompts into search-friendly queries.
+6. Searches through the configured provider chain.
+7. Scores and filters sources.
+8. Optionally deep-fetches top pages for structured/detail prompts.
+9. Injects a compact Research Guard context block into the current user turn.
+10. Records the decision in an in-memory status buffer.
+
+The plugin intentionally does not modify the system prompt.
+
+## Install With Hermes
+
+Fresh install from GitHub:
 
 ```bash
-mkdir -p ~/.hermes/plugins
-cp -R research-guard ~/.hermes/plugins/
-```
-
-For an update from an older version, remove the old plugin directory first. This matters because copying over an existing `~/.hermes/plugins/research-guard` directory can leave the old `plugin.yaml` in place or create a nested `research-guard/research-guard` folder on some systems:
-
-```bash
-hermes plugins disable research-guard
-rm -rf ~/.hermes/plugins/research-guard
+git clone https://github.com/Cesarus85/hermes-research-guard.git
+cd hermes-research-guard
 mkdir -p ~/.hermes/plugins
 cp -R research-guard ~/.hermes/plugins/
 hermes plugins enable research-guard
 hermes gateway restart
 ```
 
-After installing, verify the manifest that Hermes should read:
+Update an existing Hermes installation:
+
+```bash
+git clone https://github.com/Cesarus85/hermes-research-guard.git /tmp/hermes-research-guard
+hermes plugins disable research-guard
+rm -rf ~/.hermes/plugins/research-guard
+mkdir -p ~/.hermes/plugins
+cp -R /tmp/hermes-research-guard/research-guard ~/.hermes/plugins/
+hermes plugins enable research-guard
+hermes gateway restart
+```
+
+Verify that Hermes sees the beta manifest:
 
 ```bash
 grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 ```
 
-Expected for this release:
+Expected:
 
 ```text
-version: 0.7.4
+version: 0.8.0-beta.1
 ```
 
-Enable it:
-
-```bash
-hermes plugins enable research-guard
-hermes gateway restart
-```
-
-Or edit `~/.hermes/config.yaml` manually:
+If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
 
 ```yaml
 plugins:
   enabled:
     - research-guard
+```
+
+## Install Without Hermes
+
+Research Guard can also be used without Hermes as a standalone Python module or as a reference implementation for another agent runtime. In this mode there is no automatic pre-LLM hook unless your host application calls it.
+
+Clone and test:
+
+```bash
+git clone https://github.com/Cesarus85/hermes-research-guard.git
+cd hermes-research-guard
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Run a manual search from Python:
+
+```bash
+python3 - <<'PY'
+import importlib.util
+import json
+from pathlib import Path
+
+module_path = Path("research-guard") / "__init__.py"
+spec = importlib.util.spec_from_file_location("research_guard_plugin", module_path)
+guard = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(guard)
+
+payload = guard.research_guard_search({
+    "query": "latest Python version release notes",
+    "limit": 3,
+    "deep_fetch": False,
+})
+print(payload)
+PY
+```
+
+Use the pre-LLM hook from another runtime:
+
+```python
+result = guard.pre_llm_research_guard(
+    session_id="example-session",
+    user_message="Which Python version is current?",
+    model="qwen3",
+    platform="ollama",
+    conversation_history=[],
+)
+
+if result and result.get("context"):
+    user_message_for_model = result["context"] + "\n\n" + original_user_message
+else:
+    user_message_for_model = original_user_message
+```
+
+Standalone mode is useful for testing the heuristics, source scoring, provider chain, and status output. For full automatic behavior you need Hermes or another host that calls `pre_llm_research_guard` before model inference.
+
+## Quick Verification
+
+After installation, ask a local model:
+
+```text
+Who is the mayor of Forchheim?
+```
+
+Then ask:
+
+```text
+research_guard_status
+```
+
+The status should include fields such as:
+
+```text
+version
+runtime.module_version
+category
+visible_effect
+reason_summary
+visible_effect_summary
+user_explanation
+query_debug
+source_profiles
+cache
+```
+
+For a successful research turn, the answer should include a short source line such as:
+
+```text
+Quellen (Research Guard): <url 1>, <url 2>
 ```
 
 ## Configuration
@@ -81,38 +190,39 @@ Optional environment variables:
 | Variable | Default | Description |
 |---|---:|---|
 | `RESEARCH_GUARD_ENABLED` | `true` | Master on/off switch |
-| `RESEARCH_GUARD_ONLY_LOCAL` | `true` | Only trigger for local/small model names |
-| `RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS` | `false` | Allow automatic research for cloud models when a prompt would otherwise trigger research |
+| `RESEARCH_GUARD_ONLY_LOCAL` | `true` | Only trigger automatically for local/small model names |
+| `RESEARCH_GUARD_ALLOW_CLOUD_RESEARCH_TRIGGERS` | `false` | Allow automatic research for cloud models when a prompt would otherwise trigger |
 | `RESEARCH_GUARD_LOCAL_PATTERNS` | built-in list | Comma-separated model-name patterns |
 | `RESEARCH_GUARD_MODE` | `balanced` | Trigger sensitivity: `conservative`, `balanced`, or `aggressive` |
 | `RESEARCH_GUARD_PROVIDER` | `auto` | Search provider: `auto`, `web_search_plus`, `brave`, `hermes`, `duckduckgo`, or `searxng` |
 | `BRAVE_API_KEY` / `RESEARCH_GUARD_BRAVE_API_KEY` | empty | Brave Search API key for the `brave` provider or `auto` chain |
-| `RESEARCH_GUARD_SEARXNG_URL` | empty | Base URL for a SearXNG instance, used by the `searxng` provider or optional `auto` fallback |
+| `RESEARCH_GUARD_SEARXNG_URL` | empty | Base URL for a SearXNG instance |
 | `RESEARCH_GUARD_MAX_RESULTS` | `5` | Search results to inject, clamped 1-10 |
 | `RESEARCH_GUARD_TIMEOUT` | `8` | Direct HTTP provider timeout in seconds |
-| `RESEARCH_GUARD_PROVIDER_TIMEOUT` | `8` | Overall per-provider timeout guard for all provider paths, including Hermes/tool providers |
-| `RESEARCH_GUARD_CACHE_TTL_SECONDS` | `3600` | Default query cache TTL; `0` disables writing and reading cached results |
+| `RESEARCH_GUARD_PROVIDER_TIMEOUT` | `8` | Overall per-provider timeout guard, including Hermes/tool providers |
+| `RESEARCH_GUARD_CACHE_TTL_SECONDS` | `3600` | Default query cache TTL; `0` disables cache reads/writes |
 | `RESEARCH_GUARD_CACHE_TTL_CURRENT_SECONDS` | `900` | Shorter cache TTL for current/news/price/release style profiles |
 | `RESEARCH_GUARD_CACHE_MAX_ENTRIES` | `200` | Maximum file-cache entries retained after cleanup, clamped 20-5000 |
-| `RESEARCH_GUARD_PREFERRED_DOMAINS` | empty | Comma-separated domains to boost, e.g. `forchheim.de,bayern.de` |
-| `RESEARCH_GUARD_BLOCKED_DOMAINS` | empty | Comma-separated domains to exclude from injected sources |
+| `RESEARCH_GUARD_PREFERRED_DOMAINS` | empty | Comma-separated domains to boost, for example `forchheim.de,bayern.de` |
+| `RESEARCH_GUARD_BLOCKED_DOMAINS` | empty | Comma-separated domains to exclude |
 | `RESEARCH_GUARD_MIN_CONFIDENCE` | `low` | Minimum source confidence required for injection: `low`, `medium`, or `high` |
 | `RESEARCH_GUARD_REQUIRE_MULTIPLE_SOURCES` | `false` | Downgrade confidence when fewer than two usable/unique source domains pass scoring |
-| `RESEARCH_GUARD_REQUIRE_SOURCES` | `true` | Require a visible `Quellen (Research Guard):` line when fresh Research Guard sources were injected |
-| `RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY` | `false` | Opt-in only: inject an inactive-turn boundary for skipped/non-research turns. Disabled by default to avoid visible model reasoning artifacts in Hermes/Qwen setups |
-| `RESEARCH_GUARD_DEEP_FETCH` | `true` | Fetch readable excerpts for structured/detail prompts such as tracklists, tables, release notes, and population facts |
+| `RESEARCH_GUARD_REQUIRE_SOURCES` | `true` | Require a visible `Quellen (Research Guard):` line when fresh sources were injected |
+| `RESEARCH_GUARD_INJECT_NO_RESEARCH_BOUNDARY` | `false` | Opt-in only: inject an inactive-turn boundary for skipped/non-research turns |
+| `RESEARCH_GUARD_DEEP_FETCH` | `true` | Fetch readable excerpts for structured/detail prompts |
+| `RESEARCH_GUARD_DEEP_FETCH_MODE` | `structured` | `structured` or `always` |
 | `RESEARCH_GUARD_DEEP_FETCH_MAX_PAGES` | `2` | Number of top scored sources to fetch, clamped 1-3 |
 | `RESEARCH_GUARD_DEEP_FETCH_MAX_CHARS` | `3500` | Characters per fetched source excerpt, clamped 800-8000 |
 | `RESEARCH_GUARD_DEEP_FETCH_TIMEOUT` | `5` | Timeout per fetched source in seconds |
 
-Built-in local model patterns include:
+Built-in local model patterns:
 
 ```text
 qwen, ollama, llama, mistral, gemma, phi, deepseek, yi-, codellama, local,
 lmstudio, mlx, gguf, vllm, tgi, kimi-k2, minimax-m2
 ```
 
-Built-in local provider patterns include:
+Built-in local provider patterns:
 
 ```text
 ollama, lmstudio, lm-studio, mlx, llama.cpp, local, vllm, tgi, goliath
@@ -120,9 +230,27 @@ ollama, lmstudio, lm-studio, mlx, llama.cpp, local, vllm, tgi, goliath
 
 Cloud provider/model patterns such as `openai`, `anthropic`, `gemini`, `openrouter`, `perplexity`, `gpt-`, and `claude` are skipped by default. Manual `/research` still overrides the model gate.
 
-## Source quality
+## Search Backends
 
-Research Guard now ranks and annotates search results before injecting them. The goal is to give Hermes the best available evidence first, not just the first search results.
+`RESEARCH_GUARD_PROVIDER=auto` tries providers in this order:
+
+1. `web_search_plus`, when installed
+2. Brave Search, when `BRAVE_API_KEY` or `RESEARCH_GUARD_BRAVE_API_KEY` is set
+3. Hermes built-in `tools.web_tools.web_search_tool`
+4. SearXNG, when `RESEARCH_GUARD_SEARXNG_URL` is set
+5. DuckDuckGo HTML fallback
+
+All providers are normalized into:
+
+```json
+{"title": "...", "url": "...", "snippet": "...", "age": "..."}
+```
+
+Cache keys include provider, result count, deep-fetch profile, and normalized query text so fallback-provider results do not collide with Hermes-provider results.
+
+## Source Quality
+
+Research Guard ranks and annotates sources before injection.
 
 Boosted signals include:
 
@@ -141,148 +269,141 @@ Possible paywall or snippet-only source, Commercial or listicle-style source,
 Undated source for current-information query, Possibly stale source
 ```
 
-The injected context includes a `Quellenbewertung:` line with confidence, score, usable-source count, evidence diversity, unique domains, and duplicate hints. It also includes a `Quellenprofile:` line so Hermes can see which query profile was active: `municipal-local`, `tech-software`, `price-product`, or `news-current`.
+The injected context includes:
 
-For local/municipal questions such as mayors, population, and city/location facts, city/municipal pages are preferred when their title or snippet indicates an official administration source. For software, version, release, API, package, or pricing prompts, official docs, project pages, package registries, release notes, vendor pages, standards pages, and pricing pages are ranked ahead of weak aggregators.
+- `Quellenbewertung:` with confidence, score, usable-source count, evidence diversity, unique domains, and duplicate hints
+- `Quellenprofile:` with active query/source profiles such as `municipal-local`, `tech-software`, `price-product`, or `news-current`
+- per-source quality lines with score, confidence, domain, profiles, signals, and warnings
 
-For location questions such as `Wo liegt Forchheim?`, the context now explicitly tells the model to answer only the location/administrative classification and avoid extra rivers, traffic routes, population numbers, distances, or unrelated details unless the user asked and the sources support them.
+For local/municipal questions, city, municipality, county, government, and official administration pages are preferred. For software, version, release, API, package, or pricing prompts, official docs, project pages, package registries, release notes, vendor pages, standards pages, and pricing pages are ranked ahead of weak aggregators.
 
 ## Structured Deep Fetch
 
-For structured prompts such as tracklists, song lists, tables, release notes, prices, benchmarks, and population facts, Research Guard fetches readable excerpts from the top scored sources and injects them under `[Research Guard: Vertiefte Quellen-Auszüge]`.
+For detail-heavy prompts such as tracklists, tables, release notes, prices, benchmarks, and population facts, Research Guard fetches readable excerpts from top scored sources and injects them under:
 
-Deep fetch now runs the top-page fetches in parallel, records fetched-source counts in diagnostics, and includes the deep-fetch profile in cache keys so snippet-only and fetched-source runs do not collide.
+```text
+[Research Guard: Vertiefte Quellen-Auszüge]
+```
 
-Tracklist prompts have an extra rule: the model must not synthesize a list from search snippets, streaming catalog mixes, or anniversary/bonus editions. It should use only a clearly source-backed standard/original tracklist from the fetched excerpts, or say that the sources are insufficient. Research Guard also extracts simple numbered tracklist candidates from fetched pages and surfaces them separately in the context.
+Tracklist prompts have an extra rule: the model must not synthesize a list from snippets, streaming catalog mixes, anniversary editions, or bonus editions. It should use only a clearly source-backed standard/original tracklist from fetched excerpts, or say that the sources are insufficient.
 
-## Manual opt-in / opt-out
+## Manual Controls
 
 Force research:
 
 ```text
-#research Wer ist aktuell Präsident von Frankreich?
-/research Wer ist aktuell Präsident von Frankreich?
+#research Who is the current mayor of Forchheim?
+/research Who is the current mayor of Forchheim?
 ```
 
 Skip research:
 
 ```text
-#no-research Wer ist aktuell Präsident von Frankreich?
-/no-research Wer ist aktuell Präsident von Frankreich?
+#no-research Who is the current mayor of Forchheim?
+/no-research Who is the current mayor of Forchheim?
 ```
 
 Other slash commands, such as `/status` or `/help`, are skipped by default unless `/research` explicitly forces research.
 
-## Source follow-ups
+## Follow-Ups And Status
 
-Hermes injects plugin context only ephemerally into the current user message. That means the raw Research Guard source block is not persisted in the normal conversation history. To make follow-up questions reliable, Research Guard now stores recent decisions in memory.
+Hermes injects plugin context only ephemerally into the current user message. To make follow-up questions reliable, Research Guard stores recent decisions in memory.
 
-When the next user turn asks where an answer came from, for example:
+Source follow-ups such as:
 
 ```text
-Wo hast du die Info her?
-Was waren deine Quellen?
-Wie kam die Antwort zustande?
+Where did you get that from?
+What were your sources?
+How did you come up with that answer?
 ```
 
-Research Guard does not search those follow-up words. Instead, it injects a compact `[Research Guard: Quellenstatus]` block with the last research action, query, provider, and stored URLs. The model is told not to claim the previous factual answer came only from training data when Research Guard context was injected.
+do not trigger a fresh search for those words. Instead, Research Guard injects a compact source-status block with the last research action, query, provider, and stored URLs.
 
-You can also ask the model to call:
+Context/opinion follow-ups such as:
+
+```text
+What do you think about it?
+What is your impression of my hometown?
+```
+
+reuse the previous Research Guard topic without searching the literal follow-up phrase. The model is instructed to separate source-backed facts from its own assessment and not invent personal details about the user.
+
+Manual diagnostics:
 
 ```text
 research_guard_status
+research_guard_diagnostics
 ```
 
-If Hermes does not surface that tool name clearly, `research_guard_diagnostics` is registered as an alias with the same output.
-
-That tool returns the recent decision buffer as JSON.
-
-`research_guard_status` uses status v2. Each decision includes:
+Status v2 includes:
 
 ```text
-category, visible_effect, evidence, query_debug, confidence, score,
-usable_result_count, blocked_result_count, evidence_diversity, warnings
+category, visible_effect, reason_summary, visible_effect_summary,
+user_explanation, evidence, query_debug, confidence, score,
+usable_result_count, blocked_result_count, evidence_diversity,
+query_profiles, source_profiles, profile_coverage, warnings
 ```
 
-Categories include `researched_and_injected`, `manual_research`, `researched_but_not_injected`, `checked_and_skipped`, and `failed`. The `query_debug` object shows the redacted original prompt preview, cleaned prompt, carried subject, final query, and whether Hermes history was available. Prompt previews redact emails, phone-like values, and long token-like strings.
-
-The status payload also includes cache statistics and a compact configuration snapshot so you can verify model-gate, confidence, preferred-domain, and blocked-domain behavior during real Hermes runs.
-
-## Query quality
-
-Research Guard rewrites common factual prompts into search-friendly queries before calling the provider chain. Examples:
+Categories:
 
 ```text
-Welche Version von Python ist aktuell?
--> Python official latest version release notes
-
-Wer ist Bürgermeister von Forchheim?
--> Forchheim Bürgermeister Oberbürgermeister Rathaus offizielle Stadt Verwaltung
-
-Wie viele Einwohner hat Forchheim?
--> Forchheim Einwohner Einwohnerzahl Bevölkerung Statistik offizielle Stadt
+researched_and_injected, manual_research, researched_but_not_injected,
+checked_and_skipped, failed
 ```
 
-The original prompt, carried subject, base query, final query, and rewrite strategy are visible in `research_guard_status` under `query_debug`.
+Prompt previews redact emails, phone-like values, and long token-like strings.
 
-## Context and opinion follow-ups
+## Privacy Boundaries
 
-Short follow-ups such as:
+Research Guard deliberately skips prompts about:
 
-```text
-Was hältst du davon?
-Was sagst du dazu?
-Wie findest du das?
-Wie ist dein Eindruck von meiner Heimatstadt?
-```
+- internal machines
+- IP addresses
+- hostnames
+- SSH
+- ping
+- Tailscale
+- local reachability
+- service status
+- files
+- terminal commands
+- memory
+- notes
+- calendars
+- personal context
 
-are usually about the previous topic, not standalone search queries. Research Guard therefore skips literal web searches for those phrases and injects a `[Research Guard: Kontext-Follow-up]` block instead. The block points the model at the last Research Guard query and stored URLs, and tells it to separate source-backed facts from its own opinion or assessment. It also tells the model not to invent personal details about the user and not to emit a fresh `Quellen (Research Guard):` line for a context-only opinion follow-up.
-
-If the Hermes process was restarted or no previous Research Guard decision exists, the model is told to answer from visible conversation context only and not invent web sources.
-
-For factual follow-up questions that still require search, Research Guard can reuse a prior subject from Hermes history. If Hermes passes `conversation_history`, `messages`, or `history`, prompts such as:
-
-```text
-Wer ist Wal Timmy?
-Was ist mit ihm danach passiert?
-```
-
-build a search query like:
-
-```text
-Wal Timmy Was ist mit ihm danach passiert?
-```
-
-This is a deterministic v1 carryover. It is intentionally conservative and only activates for pronoun/demonstrative follow-ups such as `ihm`, `sie`, `es`, `dort`, `dazu`, `davon`, `darüber`, `danach`, `it`, `this`, or `that`.
-
-## Privacy boundaries
-
-Research Guard should not send local/private operational questions to external web search. Prompts about internal machines, IP addresses, hostnames, SSH, ping, Tailscale, local reachability, service status, files, terminal commands, memory, notes, calendars, or personal context are deliberately skipped unless the user explicitly forces research.
+These prompts are not sent to external web search unless the user explicitly forces research.
 
 Examples that should skip web search:
 
 ```text
-Welche Tailscale-IP hat Goliath?
-Was ist der SSH-Port von Ares?
-Hast du Zugriff auf Ares?
-Wie ist der Status der Verbindung zu Goliath?
+What is the Tailscale IP of Goliath?
+What is the SSH port of Ares?
+Can you reach Ares?
+What is the connection status to Goliath?
 ```
 
-## Search backend
+## Development
 
-Research Guard uses `RESEARCH_GUARD_PROVIDER` to choose the search path. The default `auto` chain tries optional `web_search_plus`, then Brave when an API key is configured, then Hermes' built-in `tools.web_tools.web_search_tool`, then SearXNG when a URL is configured, and finally DuckDuckGo's HTML endpoint.
-
-All providers are normalized into `{title, url, snippet, age}` when possible. The query cache key includes provider, result count, deep-fetch profile, and normalized query text so fallback-provider results do not collide with Hermes-provider results.
-
-## Development notes
-
-The plugin intentionally avoids modifying the system prompt. Hermes injects hook context into the user-message context via `pre_llm_call`, which is friendlier to prompt caching and safer than dynamically rewriting system instructions.
-
-Run the current dependency-free tests with:
+Run tests:
 
 ```bash
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
+
+Current beta test count: `45`.
+
+## Roadmap
+
+The direct feature alignment with the current OpenClaw Research Guard baseline is essentially complete. Remaining work is mostly beta hardening:
+
+- high-stakes mode for medical, legal, financial, and safety-related prompts
+- AI-content-farm and shallow-content detection
+- richer contradiction hints when top sources disagree
+- more provider normalization tests
+- optional Hermes slash command such as `/rg-status`
+- integration smoke tests once Hermes exposes a stable test harness
+- release checklist and public distribution polish
 
 ## License
 
