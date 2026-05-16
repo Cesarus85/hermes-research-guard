@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.5"
+__version__ = "0.8.0-beta.6"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -184,14 +184,16 @@ ROUTE_PLANNING_RE = re.compile(
 EV_OR_FUEL_RE = re.compile(
     r"\b(e-auto|elektroauto|elektrofahrzeug|electric\s+car|ev|bev|tesla|"
     r"ladeplanung|laden|lades?äule|lades?aeule|ladestopp|ladestation|charging|charger|"
-    r"ccs|typ\s*2|type\s*2|supercharger|ionity|enbw|aral\s*pulse|"
+    r"ccs|typ\s*2|type\s*2|supercharger|ionity|enbw|aral\s*pulse|akku|batterie|kwh|"
+    r"vw\s+id\.?\s*\d|id\.?\s*\d|id\s+buzz|hyundai\s+ioniq|kia\s+ev\d|bmw\s+i\d|"
     r"tankplanung|tankstopp|tankstopps|tanken|tankstelle|tankstellen|fuel|gas\s*station|petrol\s*station)\b",
     re.IGNORECASE,
 )
 EV_PLANNING_RE = re.compile(
     r"\b(e-auto|elektroauto|elektrofahrzeug|electric\s+car|ev|bev|tesla|"
     r"ladeplanung|laden|lades?äule|lades?aeule|ladestopp|ladestation|charging|charger|"
-    r"ccs|typ\s*2|type\s*2|supercharger|ionity|enbw|aral\s*pulse)\b",
+    r"ccs|typ\s*2|type\s*2|supercharger|ionity|enbw|aral\s*pulse|akku|batterie|kwh|"
+    r"vw\s+id\.?\s*\d|id\.?\s*\d|id\s+buzz|hyundai\s+ioniq|kia\s+ev\d|bmw\s+i\d)\b",
     re.IGNORECASE,
 )
 FUEL_PLANNING_RE = re.compile(
@@ -988,6 +990,20 @@ def _extract_route_request(message: str) -> dict[str, Any]:
     battery_match = re.search(r"\b(\d{2,3})\s*kwh\b", text, flags=re.IGNORECASE)
     if battery_match:
         preferences["battery_kwh"] = int(battery_match.group(1))
+    vehicle_match = re.search(
+        r"\b(vw\s+id\.?\s*\d|id\.?\s*\d|id\s+buzz|hyundai\s+ioniq\s*\d?|kia\s+ev\d|bmw\s+i\d)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if vehicle_match:
+        preferences["vehicle_hint"] = re.sub(r"\s+", " ", vehicle_match.group(1)).strip()
+    passengers_match = re.search(r"\b(\d{1,2})\s+personen\b", text, flags=re.IGNORECASE)
+    if passengers_match:
+        preferences["passengers"] = int(passengers_match.group(1))
+    elif re.search(r"\b(zwei|2)\s+kinder\b", text, flags=re.IGNORECASE):
+        preferences["children_on_board"] = True
+    if re.search(r"\b(vollbeladen|voll\s+beladen|beladen|loaded|full\s+load)\b", text, flags=re.IGNORECASE):
+        preferences["loaded_vehicle"] = True
     consumption_match = re.search(r"\b(\d{1,2}(?:[,.]\d+)?)\s*kwh\s*/\s*100\s*km\b", text, flags=re.IGNORECASE)
     if consumption_match:
         preferences["consumption_kwh_per_100km"] = float(consumption_match.group(1).replace(",", "."))

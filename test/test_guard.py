@@ -907,6 +907,23 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertFalse(fuel_request["needs_ev_chargers"])
         self.assertTrue(fuel_request["needs_fuel_stops"])
 
+    def test_route_planning_detects_ev_from_battery_and_vehicle_context(self):
+        prompt = (
+            "plane die Route von Forchheim nach Riva del Garda. Ich fahre mit einem "
+            "VW ID 7 mit 77 KWH Batterie. Das Auto ist vollbeladen und es sind 4 Personen mit mir."
+        )
+
+        self.assertTrue(guard._is_route_planning_prompt(prompt))
+        request = guard._extract_route_request(prompt)
+
+        self.assertEqual(request["origin"], "Forchheim")
+        self.assertEqual(request["destination"], "Riva del Garda")
+        self.assertTrue(request["needs_ev_chargers"])
+        self.assertEqual(request["preferences"]["battery_kwh"], 77)
+        self.assertIn("ID 7", request["preferences"]["vehicle_hint"])
+        self.assertEqual(request["preferences"]["passengers"], 4)
+        self.assertTrue(request["preferences"]["loaded_vehicle"])
+
     def test_enabled_route_planning_without_api_key_injects_guardrail_context(self):
         guard.DECISIONS.clear()
         old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")

@@ -1,5 +1,34 @@
 # Release Notes
 
+## v0.8.0-beta.6
+
+This beta fixes an EV route-planning trigger gap.
+
+### Fixed
+
+- Route prompts that mention an EV model and battery size, such as `VW ID 7 mit 77 kWh Batterie`, now trigger route planning even when the user does not explicitly say `E-Auto` or `Ladeplanung`.
+- Route planning now extracts additional useful hints: battery size, vehicle hint, passenger count, and loaded-vehicle wording.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.6
+```
+
+Expected tests:
+
+```text
+Ran 53 tests
+OK
+```
+
 ## v0.8.0-beta.5
 
 This beta makes optional route planning much easier to enable in Hermes. Operators no longer need to place environment variables in the correct gateway start context.

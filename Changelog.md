@@ -1,3 +1,11 @@
+## 2026-05-16 - EV-Route-Trigger für Batterie-/Fahrzeugkontext erweitert
+- **Typ:** fix
+- **Problem:** Routenfragen wie `VW ID 7 mit 77 kWh Batterie` wurden nicht als EV-Routenplanung erkannt, wenn keine Wörter wie `E-Auto` oder `Ladeplanung` vorkamen.
+- **Änderung:** Route-Planning erkennt jetzt EV-Kontext über `kWh`, `Batterie`, `Akku` und typische EV-Modellhinweise wie `VW ID 7`.
+- **Zusatzdaten:** Route Request extrahiert nun Batteriegröße, Fahrzeughinweis, Personenzahl und Vollbeladen-Hinweis für bessere Antwort-Guardrails.
+- **Version:** Plugin version raised to `0.8.0-beta.6`.
+- **Tests:** Test suite expanded from 52 to 53 dependency-free tests.
+
 ## 2026-05-16 - Plugin-eigene Route-Planning-Konfiguration ergänzt
 - **Typ:** usability
 - **Feature:** Neues Tool `research_guard_config` ergänzt, damit Hermes Research Guard dauerhaft konfigurieren kann, ohne dass Nutzer systemd-, Shell- oder Gateway-Environment-Dateien finden müssen.
