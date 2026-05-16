@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.14"
+__version__ = "0.8.0-beta.15"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -212,7 +212,8 @@ ROUTE_FOLLOWUP_RE = re.compile(
 )
 ROUTE_REFRESH_RE = re.compile(
     r"\b(neu\s*berechnen|aktualisier(?:e|en)?|refresh|nochmal|noch\s+mal|erneut|"
-    r"zurück|zurueck|rückweg|rueckweg|heimweg|return\s+trip|way\s+back)\b",
+    r"zurück|zurueck|rückweg|rueckweg|heimweg|return\s+trip|way\s+back|"
+    r"(?:ein|eine|zwei|drei|vier|\d+)\s+(?:lade)?stopps?)\b",
     re.IGNORECASE,
 )
 ROUTE_FROM_TO_PATTERNS = (
@@ -1334,7 +1335,7 @@ def _google_places_nearby_fuel_stations(point: dict[str, float], api_key: str, l
     return _google_places_nearby(point, api_key, limit, "gas_station", fields)
 
 
-def _normalize_charger(place: dict[str, Any], sample_index: int) -> dict[str, Any]:
+def _normalize_charger(place: dict[str, Any], sample_index: int, sample_count: int = 3) -> dict[str, Any]:
     display_name = place.get("displayName") if isinstance(place.get("displayName"), dict) else {}
     name = display_name.get("text") or place.get("name") or "EV charging station"
     ev_options = place.get("evChargeOptions") if isinstance(place.get("evChargeOptions"), dict) else {}
@@ -1349,6 +1350,7 @@ def _normalize_charger(place: dict[str, Any], sample_index: int) -> dict[str, An
             "out_of_service_count": item.get("outOfServiceCount"),
             "max_charge_rate_kw": item.get("maxChargeRateKw"),
         })
+    position = _route_sample_position(sample_index, sample_count)
     return {
         "name": str(name)[:160],
         "address": str(place.get("formattedAddress") or "")[:240],
@@ -1356,10 +1358,11 @@ def _normalize_charger(place: dict[str, Any], sample_index: int) -> dict[str, An
         "google_maps_uri": place.get("googleMapsUri"),
         "connectors": connectors[:8],
         "sample_index": sample_index,
+        **position,
     }
 
 
-def _normalize_fuel_stop(place: dict[str, Any], sample_index: int) -> dict[str, Any]:
+def _normalize_fuel_stop(place: dict[str, Any], sample_index: int, sample_count: int = 3) -> dict[str, Any]:
     display_name = place.get("displayName") if isinstance(place.get("displayName"), dict) else {}
     name = display_name.get("text") or place.get("name") or "Fuel station"
     fuel_options = place.get("fuelOptions") if isinstance(place.get("fuelOptions"), dict) else {}
@@ -1375,6 +1378,7 @@ def _normalize_fuel_stop(place: dict[str, Any], sample_index: int) -> dict[str, 
             "currency_code": price.get("currencyCode"),
             "update_time": item.get("updateTime"),
         })
+    position = _route_sample_position(sample_index, sample_count)
     return {
         "name": str(name)[:160],
         "address": str(place.get("formattedAddress") or "")[:240],
@@ -1382,6 +1386,7 @@ def _normalize_fuel_stop(place: dict[str, Any], sample_index: int) -> dict[str, 
         "google_maps_uri": place.get("googleMapsUri"),
         "fuel_prices": fuel_prices[:8],
         "sample_index": sample_index,
+        **position,
     }
 
 
@@ -1428,6 +1433,33 @@ def _route_stop_coverage(stops: list[dict[str, Any]]) -> dict[str, Any]:
         "count": len(stops),
         "sample_indexes": sample_indexes,
         "sample_coverage": len(sample_indexes),
+    }
+
+
+def _route_sample_position(sample_index: int, sample_count: int) -> dict[str, Any]:
+    sample_count = max(1, int(sample_count or 1))
+    sample_index = max(1, min(int(sample_index or 1), sample_count))
+    if sample_count == 1:
+        progress = 50
+        label = "route-middle"
+    else:
+        progress = int(round((sample_index - 1) * 100 / (sample_count - 1)))
+        if sample_index == 1:
+            label = "start-area"
+        elif sample_index == sample_count:
+            label = "destination-area"
+        elif progress < 35:
+            label = "early-route-area"
+        elif progress > 65:
+            label = "late-route-area"
+        else:
+            label = "middle-route-area"
+    return {
+        "sample_index": sample_index,
+        "sample_count": sample_count,
+        "route_progress_percent_approx": progress,
+        "route_position": label,
+        "note": "Approximate search area from sampled route polyline, not an exact stop order, segment distance, or optimized waypoint.",
     }
 
 
@@ -1538,7 +1570,7 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
     route = routes[0]
     polyline = ((route.get("polyline") or {}).get("encodedPolyline") or "")
     points = _decode_polyline(polyline)
-    sample_count = _route_int("max_charger_searches", "RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5)
+    sample_count = _route_int("max_charger_searches", "RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 5, 1, 5)
     charger_limit = _route_int("max_chargers", "RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12)
     fuel_limit = _route_int("max_fuel_stops", "RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS", 6, 1, 12)
     warnings: list[str] = []
@@ -1553,7 +1585,7 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
             for idx, point in enumerate(route_points, 1):
                 try:
                     places = _google_places_nearby_ev_chargers(point, api_key, per_search_limit)
-                    chargers.extend(_normalize_charger(place, idx) for place in places if isinstance(place, dict))
+                    chargers.extend(_normalize_charger(place, idx, len(route_points)) for place in places if isinstance(place, dict))
                 except Exception as exc:
                     warnings.append(f"EV charger lookup near route sample {idx} failed: {exc}")
         if needs_fuel_stops:
@@ -1561,7 +1593,7 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
             for idx, point in enumerate(route_points, 1):
                 try:
                     places = _google_places_nearby_fuel_stations(point, api_key, per_search_limit)
-                    fuel_stops.extend(_normalize_fuel_stop(place, idx) for place in places if isinstance(place, dict))
+                    fuel_stops.extend(_normalize_fuel_stop(place, idx, len(route_points)) for place in places if isinstance(place, dict))
                 except Exception as exc:
                     warnings.append(f"Fuel station lookup near route sample {idx} failed: {exc}")
     balanced_chargers = _balanced_route_stop_candidates(chargers, charger_limit)
@@ -1587,6 +1619,7 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
         "stop_coverage": {
             "chargers": charger_coverage,
             "fuel_stops": fuel_coverage,
+            "sample_count": len(route_points) if points else 0,
         },
         "warnings": warnings,
         "route_shape": _route_shape_summary(polyline),
@@ -1638,7 +1671,11 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Wenn Lade-/Tankkandidaten nur an Start, Ziel oder einem einzelnen Routenpunkt gefunden wurden, sage genau das. Ergänze KEINE unterwegs liegenden Stopps aus Trainingswissen.",
         "Erfinde keine Zwischenorte, Autobahnen, Pässe oder Umwege, die nicht im Kontext stehen. Wenn der Nutzer nach dem Verlauf fragt, nutze nur Distanz/Zeit und Route-Shape-Diagnostik oder sage, dass keine Ortsnamen vorliegen.",
         "Streckenverlauf-Regel: Nenne Autobahnen, Straßen, Anschlussstellen, Grenzübergänge oder Zwischenorte nur, wenn sie unten in `Streckenverlauf aus Google Routes` stehen. Wenn keine Schritte vorhanden sind, sage: `Der detaillierte Streckenverlauf liegt im Research-Guard-Kontext nicht vor.`",
+        "Verlaufsformat-Regel: Wenn du den Streckenverlauf ausgibst, kopiere/summarisiere nur die Google-Routes-Schritte in derselben Reihenfolge. Erstelle keine eigene Autobahnkette und korrigiere/ergänze keine Schritte aus Weltwissen.",
         "Maut-/Kosten-Regel: Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Höhenmeter, Passhöhen oder Grenzdetails. Google Routes/Places liefern hier keine offiziellen Maut- oder Höhenmeterdaten.",
+        "Stopppositions-Regel: `Routenpunkt`, `route_position` und `route_progress_percent_approx` sind nur grobe Suchbereiche entlang der Polyline. Verwende sie nicht als exakte Stoppreihenfolge, Etappe, Segmentdistanz oder Beweis, dass ein Ladepunkt direkt auf der Route liegt.",
+        "Mehrstopps-Regel: Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, liefere nur eine Kandidatenliste nach grober Routenposition. Behaupte keine optimierte Zwei-Stopp-Route, keine Etappen wie `Stop 1 -> Stop 2`, und keine Segmentkilometer, solange Research Guard keine echte Segment-/SoC-Optimierung liefert.",
+        "Konflikt-Regel: Wenn nur ein Kandidat mit bestätigten Connector-/Leistungsdaten im relevanten unterwegs-Bereich vorhanden ist, sage das klar, statt einen zweiten Ladepunkt als gleichwertigen Stop zu behandeln.",
     ]
     if preferences:
         lines.append(f"Erkannte Nutzerparameter: {json.dumps(preferences, ensure_ascii=False)}")
@@ -1677,7 +1714,8 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
             url = f"; Maps: {charger.get('google_maps_uri')}" if charger.get("google_maps_uri") else ""
             rating = f"; Rating: {charger.get('rating')}" if charger.get("rating") is not None else ""
             sample = f"; Routenpunkt: {charger.get('sample_index')}" if charger.get("sample_index") is not None else ""
-            lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{sample}{url}")
+            position = f"; Position: {charger.get('route_position')} (~{charger.get('route_progress_percent_approx')}%)" if charger.get("route_position") else ""
+            lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{sample}{position}{url}")
     elif request.get("needs_ev_chargers"):
         lines.extend([
             "",
@@ -1701,7 +1739,8 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
             url = f"; Maps: {stop.get('google_maps_uri')}" if stop.get("google_maps_uri") else ""
             rating = f"; Rating: {stop.get('rating')}" if stop.get("rating") is not None else ""
             sample = f"; Routenpunkt: {stop.get('sample_index')}" if stop.get("sample_index") is not None else ""
-            lines.append(f"{idx}. {stop.get('name')}; {stop.get('address') or 'Adresse unbekannt'}{rating}{details}{sample}{url}")
+            position = f"; Position: {stop.get('route_position')} (~{stop.get('route_progress_percent_approx')}%)" if stop.get("route_position") else ""
+            lines.append(f"{idx}. {stop.get('name')}; {stop.get('address') or 'Adresse unbekannt'}{rating}{details}{sample}{position}{url}")
     elif request.get("needs_fuel_stops"):
         lines.extend([
             "",
@@ -1756,6 +1795,8 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Erfinde keine Aussagen zu Raststätten, Kaffee, WC, Shops, Zuverlässigkeit, Preisen, Betreiberqualität oder Tesla-Fremdmarken-Freigaben.",
         "Bei Fragen zum Streckenverlauf: Nutze nur gespeicherte Google-Routes-Schritte. Wenn keine Schritte gespeichert sind, sage, dass der detaillierte Streckenverlauf im Research-Guard-Kontext nicht vorliegt.",
         "Erfinde keine Vignettenpreise, Brennermaut, italienische Autobahnmaut, Gesamtmaut, Höhenmeter, Passhöhen, Grenzdetails, Autobahnen oder Anschlussstellen außerhalb der gespeicherten Google-Routes-Schritte.",
+        "Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, aber nur gespeicherte Kandidaten vorliegen, liefere keine selbst gebaute Etappenplanung. Liste Kandidaten nach grober Routenposition und sage, dass Research Guard keine optimierte Mehrstopp-Route berechnet.",
+        "Ordne Lade-/Tankkandidaten nicht frei zwischen Google-Routes-Schritten ein und erfinde keine Segmentkilometer zwischen Kandidaten.",
         f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
         f"Modell: {model or 'unknown'}",
         f"Ursprüngliche Route: {snapshot.get('origin') or 'unbekannt'} -> {snapshot.get('destination') or 'unbekannt'}",
@@ -1798,14 +1839,16 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
             url = f"; Maps: {charger.get('google_maps_uri')}" if charger.get("google_maps_uri") else ""
             rating = f"; Rating: {charger.get('rating')}" if charger.get("rating") is not None else ""
             sample = f"; Routenpunkt: {charger.get('sample_index')}" if charger.get("sample_index") is not None else ""
-            lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{sample}{url}")
+            position = f"; Position: {charger.get('route_position')} (~{charger.get('route_progress_percent_approx')}%)" if charger.get("route_position") else ""
+            lines.append(f"{idx}. {charger.get('name')}; {charger.get('address') or 'Adresse unbekannt'}{rating}{details}{sample}{position}{url}")
     if fuel_stops:
         lines.extend(["", "Letzte Tankstopp-Kandidaten:"])
         for idx, stop in enumerate(fuel_stops, 1):
             url = f"; Maps: {stop.get('google_maps_uri')}" if stop.get("google_maps_uri") else ""
             rating = f"; Rating: {stop.get('rating')}" if stop.get("rating") is not None else ""
             sample = f"; Routenpunkt: {stop.get('sample_index')}" if stop.get("sample_index") is not None else ""
-            lines.append(f"{idx}. {stop.get('name')}; {stop.get('address') or 'Adresse unbekannt'}{rating}{sample}{url}")
+            position = f"; Position: {stop.get('route_position')} (~{stop.get('route_progress_percent_approx')}%)" if stop.get("route_position") else ""
+            lines.append(f"{idx}. {stop.get('name')}; {stop.get('address') or 'Adresse unbekannt'}{rating}{sample}{position}{url}")
     lines.extend([
         "",
         "Antwortpflicht: Antworte als Anschluss an die bestehende Route. Behaupte keine frischen Google-Daten. Wenn du Kandidaten bewertest, nenne sie als Kandidaten, nicht als garantierte Stopps.",
@@ -3115,7 +3158,7 @@ def _config_snapshot() -> dict[str, Any]:
             "config_path": str(CONFIG_PATH),
             "plugin_config_path": str(PLUGIN_CONFIG_PATH),
             "config_file_present": CONFIG_PATH.exists() or PLUGIN_CONFIG_PATH.exists(),
-            "max_charger_searches": _route_int("max_charger_searches", "RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5),
+            "max_charger_searches": _route_int("max_charger_searches", "RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 5, 1, 5),
             "max_chargers": _route_int("max_chargers", "RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12),
             "max_fuel_stops": _route_int("max_fuel_stops", "RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS", 6, 1, 12),
             "charger_radius_meters": _route_int("charger_radius_meters", "RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000),
@@ -3286,7 +3329,7 @@ def research_guard_config(args: dict, **kwargs) -> str:
                 "api_key_configured": bool(_route_api_key()),
                 "api_key_preview": _masked_secret(_route_api_key()),
                 "include_fuel_options": _route_bool("include_fuel_options", "RESEARCH_GUARD_ROUTE_INCLUDE_FUEL_OPTIONS", False),
-                "max_charger_searches": _route_int("max_charger_searches", "RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 3, 1, 5),
+                "max_charger_searches": _route_int("max_charger_searches", "RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES", 5, 1, 5),
                 "max_chargers": _route_int("max_chargers", "RESEARCH_GUARD_ROUTE_MAX_CHARGERS", 6, 1, 12),
                 "max_fuel_stops": _route_int("max_fuel_stops", "RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS", 6, 1, 12),
                 "charger_radius_meters": _route_int("charger_radius_meters", "RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS", 8000, 1000, 50000),

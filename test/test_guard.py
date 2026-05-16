@@ -1038,6 +1038,8 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
                         "address": "A9 Rastanlage Beispiel",
                         "rating": 4.4,
                         "google_maps_uri": "https://maps.google.com/?cid=123",
+                        "route_position": "middle-route-area",
+                        "route_progress_percent_approx": 50,
                         "connectors": [
                             {
                                 "type": "EV_CONNECTOR_TYPE_CCS_COMBO_2",
@@ -1108,6 +1110,9 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Auf A73 Richtung Nürnberg fahren", result["context"])
         self.assertIn("Maut-/Kosten-Regel", result["context"])
         self.assertIn("keine offiziellen Maut-, Vignetten-, Höhenmeter- oder Grenzkosten", result["context"])
+        self.assertIn("Stopppositions-Regel", result["context"])
+        self.assertIn("Mehrstopps-Regel", result["context"])
+        self.assertIn("Position: middle-route-area (~50%)", result["context"])
         self.assertIn("Datenquelle (Research Guard): Google Maps Platform Routes/Places", result["context"])
         self.assertEqual(guard.DECISIONS[-1]["action"], "injected")
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning")
@@ -1306,6 +1311,12 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual({item["sample_index"] for item in balanced}, {1, 2, 3})
         self.assertLessEqual(sum(1 for item in balanced if item["sample_index"] == 1), 2)
 
+    def test_route_sample_position_marks_search_area_not_stop_order(self):
+        self.assertEqual(guard._route_sample_position(1, 5)["route_position"], "start-area")
+        self.assertEqual(guard._route_sample_position(3, 5)["route_position"], "middle-route-area")
+        self.assertEqual(guard._route_sample_position(5, 5)["route_position"], "destination-area")
+        self.assertIn("not an exact stop order", guard._route_sample_position(3, 5)["note"])
+
     def test_route_planning_payload_balances_chargers_across_route_samples(self):
         old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
         original_routes = guard._google_routes_compute
@@ -1352,6 +1363,8 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(len(payload["chargers"]), 6)
         self.assertGreater(payload["stop_coverage"]["chargers"]["sample_coverage"], 1)
         self.assertEqual({item["sample_index"] for item in payload["chargers"]}, {1, 2, 3})
+        self.assertIn("route_position", payload["chargers"][0])
+        self.assertEqual(payload["stop_coverage"]["sample_count"], 3)
 
     def test_route_test_tool_reports_missing_key(self):
         old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
@@ -1563,6 +1576,67 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
         self.assertIsInstance(result, dict)
         self.assertEqual(calls, [("Riva del Garda", "Forchheim", True, False)])
+        self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning-followup-refresh")
+        self.assertTrue(guard.DECISIONS[-1]["route_planning"]["refresh"])
+
+    def test_route_followup_refreshes_google_for_explicit_two_stop_request(self):
+        guard.DECISIONS.clear()
+        old_enabled = os.environ.get("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING")
+        old_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        original_payload = guard._route_planning_payload
+        calls = []
+        try:
+            os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = "true"
+            os.environ["GOOGLE_MAPS_API_KEY"] = "test-key"
+            guard._record_decision(
+                "injected",
+                "route-planning",
+                provider="google-maps",
+                query="Forchheim -> Riva del Garda",
+                route_planning={"origin": "Forchheim", "destination": "Riva del Garda"},
+                route_context={
+                    "origin": "Forchheim",
+                    "destination": "Riva del Garda",
+                    "route": {"distance_meters": 620000, "duration_seconds": 25200, "static_duration_seconds": 24000},
+                    "request": {"needs_ev_chargers": True, "needs_fuel_stops": False, "preferences": {"battery_kwh": 77}},
+                    "chargers": [],
+                    "fuel_stops": [],
+                    "warnings": [],
+                    "provider": "google-maps",
+                },
+            )
+
+            def fake_payload(origin, destination, needs_ev=True, needs_fuel=False):
+                calls.append((origin, destination, needs_ev, needs_fuel))
+                return {
+                    "success": True,
+                    "provider": "google-maps",
+                    "origin": origin,
+                    "destination": destination,
+                    "route": {"distance_meters": 620000, "duration_seconds": 25200, "static_duration_seconds": 24000},
+                    "chargers": [
+                        {"name": "Mid Charger", "address": "Route", "connectors": [], "sample_index": 3, "route_position": "middle-route-area", "route_progress_percent_approx": 50}
+                    ],
+                    "fuel_stops": [],
+                    "warnings": [],
+                    "cached": False,
+                }
+
+            guard._route_planning_payload = fake_payload
+            result = guard.pre_llm_research_guard("s1", "Kannst du mir den Verlauf mit zwei Ladestopps geben?", "qwen3", "ollama")
+        finally:
+            guard._route_planning_payload = original_payload
+            if old_enabled is None:
+                os.environ.pop("RESEARCH_GUARD_ENABLE_ROUTE_PLANNING", None)
+            else:
+                os.environ["RESEARCH_GUARD_ENABLE_ROUTE_PLANNING"] = old_enabled
+            if old_key is None:
+                os.environ.pop("GOOGLE_MAPS_API_KEY", None)
+            else:
+                os.environ["GOOGLE_MAPS_API_KEY"] = old_key
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(calls, [("Forchheim", "Riva del Garda", True, False)])
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning-followup-refresh")
         self.assertTrue(guard.DECISIONS[-1]["route_planning"]["refresh"])
 

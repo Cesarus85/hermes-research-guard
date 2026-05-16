@@ -1,5 +1,37 @@
 # Release Notes
 
+## v0.8.0-beta.15
+
+This beta tightens multi-stop route planning so local models cannot turn candidate chargers into invented route segments.
+
+### Fixed
+
+- EV/fuel stop candidates now include approximate route position metadata (`route_position`, `route_progress_percent_approx`) with explicit wording that these are search areas, not exact stop order or segment distances.
+- Follow-up requests such as `mit zwei Ladestopps` now trigger a fresh Google Routes/Places refresh instead of reusing the old snapshot as if it were optimized.
+- The default number of sampled route points for stop searches increased from 3 to 5.
+- Route context now forbids assigning charger candidates to navigation steps, creating `Etappe 1 -> Stop -> Etappe 2` plans, or inventing segment kilometers between candidates.
+- If only one relevant candidate has confirmed connector data, Hermes must say that instead of treating an unconfirmed candidate as equivalent.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.15
+```
+
+Expected tests:
+
+```text
+Ran 71 tests
+OK
+```
+
 ## v0.8.0-beta.14
 
 This beta makes route-course answers functional instead of guessed.

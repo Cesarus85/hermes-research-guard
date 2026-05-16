@@ -1,3 +1,13 @@
+## 2026-05-16 - Mehrstopp-Ladeplanung robuster begrenzt
+- **Typ:** fix
+- **Problem:** Hermes konnte Ladepunkt-Kandidaten noch frei in Google-Routes-Schritte einsortieren und daraus erfundene Etappen, Segmentkilometer oder eine angebliche Zwei-Stopp-Ladeplanung bauen.
+- **Änderung:** Lade-/Tankkandidaten enthalten jetzt eine grobe `route_position` und `route_progress_percent_approx`, aber mit ausdrücklichem Hinweis, dass dies nur Suchbereiche entlang der Polyline sind.
+- **Follow-ups:** Anfragen wie `mit zwei Ladestopps` lösen jetzt eine frische Routen-/Places-Abfrage aus, statt den alten Snapshot als optimierte Mehrstopp-Route umzudeuten.
+- **Kandidatenabdeckung:** Standardmäßig werden jetzt 5 statt 3 Routenpunkte für Lade-/Tankkandidaten abgefragt.
+- **Guardrails:** Hermes darf Kandidaten nicht mehr frei zwischen Navigationsschritten platzieren, keine `Etappe 1 -> Stop -> Etappe 2`-Planung erfinden und keine Segmentkilometer zwischen Kandidaten nennen.
+- **Version:** Plugin version raised to `0.8.0-beta.15`.
+- **Tests:** Test suite expanded with route-position and multi-stop refresh coverage.
+
 ## 2026-05-16 - Google-Routes-Schritte für Streckenverlauf ergänzt
 - **Typ:** feature/fix
 - **Problem:** Anschlussfragen nach dem Streckenverlauf führten wieder zu erfundenen Autobahnen, Grenzdetails, Mautkosten und Segmenten aus Modellwissen.

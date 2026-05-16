@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.14`
+**Beta release:** `v0.8.0-beta.15`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -83,7 +83,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.14
+version: 0.8.0-beta.15
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -120,7 +120,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.14
+version: 0.8.0-beta.15
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -189,7 +189,7 @@ The persistent config file looks like this:
     "enabled": true,
     "google_maps_api_key": "your-google-maps-platform-key",
     "include_fuel_options": false,
-    "max_charger_searches": 3,
+    "max_charger_searches": 5,
     "max_chargers": 6,
     "max_fuel_stops": 6,
     "charger_radius_meters": 8000,
@@ -230,7 +230,7 @@ Environment variables are still supported and override config-file values when s
 | `RESEARCH_GUARD_ENABLE_ROUTE_PLANNING` | `false` | Enable optional Google Maps route, EV charging, and fuel-stop context for route-planning prompts |
 | `GOOGLE_MAPS_API_KEY` / `RESEARCH_GUARD_GOOGLE_MAPS_API_KEY` | empty | Google Maps Platform key for the optional route-planning datasource |
 | `RESEARCH_GUARD_ROUTE_TIMEOUT` | `8` | Timeout for Google Routes/Places requests in seconds |
-| `RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES` | `3` | Number of sampled route points to query for EV chargers, clamped 1-5 |
+| `RESEARCH_GUARD_ROUTE_MAX_CHARGER_SEARCHES` | `5` | Number of sampled route points to query for EV chargers, clamped 1-5 |
 | `RESEARCH_GUARD_ROUTE_MAX_CHARGERS` | `6` | Maximum EV charger candidates to inject, clamped 1-12 |
 | `RESEARCH_GUARD_ROUTE_MAX_FUEL_STOPS` | `6` | Maximum fuel-stop candidates to inject, clamped 1-12 |
 | `RESEARCH_GUARD_ROUTE_CHARGER_RADIUS_METERS` | `8000` | Nearby-search radius for route stop candidates, clamped 1000-50000 |
