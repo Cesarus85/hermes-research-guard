@@ -1068,6 +1068,12 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
                         {"index": 2, "instruction": "Auf A9 Richtung München wechseln", "distance": "170 km", "static_duration": "1 h 40 min"},
                     ],
                 },
+                "route_corridor": {
+                    "items": ["A73", "A9"],
+                    "text": "A73 -> A9",
+                    "source": "google-routes-steps",
+                    "truncated": False,
+                },
                 "warnings": [],
                 "cached": False,
                 "cache_key": "route=test",
@@ -1114,6 +1120,8 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Tesla-CCS-Regel", result["context"])
         self.assertIn("Streckenverlauf aus Google Routes", result["context"])
         self.assertIn("bewusst NICHT in den Antwortkontext aufgenommen", result["context"])
+        self.assertIn("Geprüfte Verlaufskette aus Google Routes: A73 -> A9", result["context"])
+        self.assertIn("Verlaufsketten-Regel", result["context"])
         self.assertNotIn("Auf A73 Richtung Nürnberg fahren", result["context"])
         self.assertIn("Maut-/Kosten-Regel", result["context"])
         self.assertIn("nur als nummerierte `Google-Routes-Schritte`", result["context"])
@@ -1124,7 +1132,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Mehrstopps-Regel", result["context"])
         self.assertIn("Antwortvorlage-Pflicht", result["context"])
         self.assertIn("Route-Rubrik-Regel", result["context"])
-        self.assertIn("Keine Zeile `Verlauf:`", result["context"])
+        self.assertIn("Geprüfte Verlaufskette", result["context"])
         self.assertIn("`Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`", result["context"])
         self.assertIn("Eine `Streckenverlauf`-Rubrik darf nur erscheinen", result["context"])
         self.assertIn("Maut-/Vignetten-Rubrik darf nur erscheinen", result["context"])
@@ -1170,6 +1178,22 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Streckenverlauf aus Google Routes", context)
         self.assertIn("Auf A73 Richtung Nürnberg fahren", context)
         self.assertNotIn("bewusst NICHT in den Antwortkontext aufgenommen", context)
+
+    def test_route_corridor_is_extracted_from_google_steps_only(self):
+        route_steps = {
+            "steps": [
+                {"instruction": "Auf A73 Richtung Nürnberg fahren"},
+                {"instruction": "Weiter auf die A9/E45"},
+                {"instruction": "Auf A9 bleiben"},
+                {"instruction": "Ausfahrt auf SS240 nehmen"},
+            ]
+        }
+
+        corridor = guard._route_corridor_from_steps(route_steps)
+
+        self.assertEqual(corridor["items"], ["A73", "A9", "E45", "SS240"])
+        self.assertEqual(corridor["text"], "A73 -> A9 -> E45 -> SS240")
+        self.assertIn("Google Routes", corridor["note"])
 
     def test_route_planning_context_supports_fuel_stops(self):
         guard.DECISIONS.clear()
@@ -1306,6 +1330,12 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
                                         "staticDuration": "1500s",
                                         "navigationInstruction": {"instructions": "Auf <b>A73</b> Richtung Nürnberg fahren"},
                                         "localizedValues": {"distance": {"text": "35 km"}, "staticDuration": {"text": "25 min"}},
+                                    },
+                                    {
+                                        "distanceMeters": 170000,
+                                        "staticDuration": "6000s",
+                                        "navigationInstruction": {"instructions": "Weiter auf <b>A9</b> Richtung München"},
+                                        "localizedValues": {"distance": {"text": "170 km"}, "staticDuration": {"text": "1 h 40 min"}},
                                     }
                                 ]
                             }
@@ -1319,9 +1349,10 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(payload["distance_meters"], 620000)
         self.assertEqual(payload["route_shape"]["point_count"], 3)
         self.assertEqual(len(payload["route_shape"]["sample_points"]), 3)
-        self.assertEqual(payload["route_steps"]["count"], 1)
+        self.assertEqual(payload["route_steps"]["count"], 2)
         self.assertEqual(payload["route_steps"]["steps"][0]["instruction"], "Auf A73 Richtung Nürnberg fahren")
         self.assertEqual(payload["route_steps"]["steps"][0]["distance"], "35 km")
+        self.assertEqual(payload["route_corridor"]["text"], "A73 -> A9")
 
     def test_google_routes_compute_requests_navigation_steps(self):
         old_timeout = os.environ.get("RESEARCH_GUARD_ROUTE_TIMEOUT_SECONDS")

@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.18"
+__version__ = "0.8.0-beta.19"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1233,6 +1233,51 @@ def _route_steps_summary(route: dict[str, Any], limit: int = 24) -> dict[str, An
     }
 
 
+def _route_corridor_from_steps(route_steps: dict[str, Any], limit: int = 14) -> dict[str, Any]:
+    steps = route_steps.get("steps") if isinstance(route_steps, dict) else []
+    if not isinstance(steps, list) or not steps:
+        return {"items": [], "text": "", "source": "google-routes-steps", "truncated": False}
+    seen: set[str] = set()
+    items: list[str] = []
+    pattern = re.compile(r"\b(?:A\s?\d{1,3}|B\s?\d{1,3}|E\s?\d{1,3}|SS\s?\d{1,3}|SP\s?\d{1,3})\b", re.IGNORECASE)
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        instruction = str(step.get("instruction") or "")
+        for match in pattern.finditer(instruction):
+            token = re.sub(r"\s+", "", match.group(0).upper())
+            if token.startswith("A"):
+                label = f"A{token[1:]}"
+            elif token.startswith("B"):
+                label = f"B{token[1:]}"
+            elif token.startswith("E"):
+                label = f"E{token[1:]}"
+            elif token.startswith("SS"):
+                label = f"SS{token[2:]}"
+            elif token.startswith("SP"):
+                label = f"SP{token[2:]}"
+            else:
+                label = token
+            if label not in seen:
+                seen.add(label)
+                items.append(label)
+                if len(items) >= limit:
+                    return {
+                        "items": items,
+                        "text": " -> ".join(items),
+                        "source": "google-routes-steps",
+                        "truncated": True,
+                        "note": "Derived mechanically from Google Routes step instructions; do not add roads manually.",
+                    }
+    return {
+        "items": items,
+        "text": " -> ".join(items),
+        "source": "google-routes-steps",
+        "truncated": False,
+        "note": "Derived mechanically from Google Routes step instructions; do not add roads manually.",
+    }
+
+
 def _route_diagnostic_from_response(origin: str, destination: str, route_data: dict[str, Any]) -> dict[str, Any]:
     routes = route_data.get("routes") if isinstance(route_data.get("routes"), list) else []
     if not routes:
@@ -1248,6 +1293,7 @@ def _route_diagnostic_from_response(origin: str, destination: str, route_data: d
     distance_meters = route.get("distanceMeters")
     duration_seconds = _parse_google_duration_seconds(route.get("duration"))
     static_duration_seconds = _parse_google_duration_seconds(route.get("staticDuration"))
+    route_steps = _route_steps_summary(route)
     return {
         "ok": True,
         "provider": "google-maps-routes",
@@ -1260,7 +1306,8 @@ def _route_diagnostic_from_response(origin: str, destination: str, route_data: d
         "static_duration_seconds": static_duration_seconds,
         "static_duration": _format_duration(static_duration_seconds),
         "route_shape": _route_shape_summary(encoded_polyline),
-        "route_steps": _route_steps_summary(route),
+        "route_steps": route_steps,
+        "route_corridor": _route_corridor_from_steps(route_steps),
         "route_count": len(routes),
         "note": "This validates that the configured Google Maps key can call Routes API. It does not validate Places API unless a route-planning prompt also requests stops.",
     }
@@ -1478,6 +1525,7 @@ def _route_context_snapshot(payload: dict[str, Any], request: dict[str, Any]) ->
     route = payload.get("route") if isinstance(payload.get("route"), dict) else {}
     energy_estimate = _route_energy_estimate(route, request.get("preferences") if isinstance(request.get("preferences"), dict) else {})
     route_steps = payload.get("route_steps") if isinstance(payload.get("route_steps"), dict) else {}
+    route_corridor = payload.get("route_corridor") if isinstance(payload.get("route_corridor"), dict) else {}
     return {
         "origin": payload.get("origin") or request.get("origin"),
         "destination": payload.get("destination") or request.get("destination"),
@@ -1496,6 +1544,7 @@ def _route_context_snapshot(payload: dict[str, Any], request: dict[str, Any]) ->
         "stop_coverage": payload.get("stop_coverage") or {},
         "energy_estimate": energy_estimate,
         "route_steps": route_steps,
+        "route_corridor": route_corridor,
         "warnings": payload.get("warnings") or [],
         "route_shape": payload.get("route_shape") or {},
         "provider": payload.get("provider"),
@@ -1630,6 +1679,7 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
         warnings.append("All EV charger candidates came from one sampled route area. Do not invent along-route charging stops from training knowledge.")
     if needs_fuel_stops and fuel_coverage["count"] > 1 and fuel_coverage["sample_coverage"] <= 1:
         warnings.append("All fuel-stop candidates came from one sampled route area. Do not invent along-route fuel stops from training knowledge.")
+    route_steps = _route_steps_summary(route)
     payload = {
         "success": True,
         "provider": "google-maps",
@@ -1649,7 +1699,8 @@ def _route_planning_payload(origin: str, destination: str, needs_ev_chargers: bo
         },
         "warnings": warnings,
         "route_shape": _route_shape_summary(polyline),
-        "route_steps": _route_steps_summary(route),
+        "route_steps": route_steps,
+        "route_corridor": _route_corridor_from_steps(route_steps),
         "cached": False,
     }
     return payload
@@ -1664,6 +1715,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
     stop_coverage = payload.get("stop_coverage") if isinstance(payload.get("stop_coverage"), dict) else {}
     energy_estimate = _route_energy_estimate(route, preferences)
     route_steps = payload.get("route_steps") if isinstance(payload.get("route_steps"), dict) else {}
+    route_corridor = payload.get("route_corridor") if isinstance(payload.get("route_corridor"), dict) else {}
     include_route_steps = _is_route_course_request(str(request.get("prompt") or ""))
     lines = [
         "[Research Guard aktiv]",
@@ -1705,7 +1757,7 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Mehrstopps-Regel: Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, liefere nur eine Kandidatenliste nach grober Routenposition. Behaupte keine optimierte Zwei-Stopp-Route, keine Etappen wie `Stop 1 -> Stop 2`, und keine Segmentkilometer, solange Research Guard keine echte Segment-/SoC-Optimierung liefert.",
         "Konflikt-Regel: Wenn nur ein Kandidat mit bestätigten Connector-/Leistungsdaten im relevanten unterwegs-Bereich vorhanden ist, sage das klar, statt einen zweiten Ladepunkt als gleichwertigen Stop zu behandeln.",
         "Antwortvorlage-Pflicht: Nutze für normale Routen-/Ladeplanungsantworten nur diese Rubriken: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`.",
-        "Route-Rubrik-Regel: In der Rubrik `Route` sind nur Start, Ziel, Gesamtdistanz und Gesamtfahrzeit erlaubt. Keine Zeile `Verlauf:`, keine Autobahnen/Straßen, keine Pässe, keine Maut.",
+        "Route-Rubrik-Regel: In der Rubrik `Route` sind nur Start, Ziel, Gesamtdistanz, Gesamtfahrzeit und die unten angegebene `Geprüfte Verlaufskette` erlaubt. Keine selbst gebaute Zeile `Verlauf:`, keine manuell ergänzten Autobahnen/Straßen, keine Pässe, keine Maut.",
         "Vorlagen-Regel: Eine `Streckenverlauf`-Rubrik darf nur erscheinen, wenn der Nutzer ausdrücklich nach Verlauf/Autobahnen/Straßen fragt. Dann ausschließlich nummerierte Google-Routes-Schritte ausgeben, keine Ein-Zeilen-Kette.",
         "Maut-Rubrik-Regel: Eine Maut-/Vignetten-Rubrik darf nur erscheinen, wenn offizielle Mautdaten injiziert sind. Sonst schreibe höchstens unter `Nicht von Research Guard geprüft`: `Maut/Vignette wurde von Research Guard nicht geprüft.`",
         "Verbotene-Rubriken-Regel: Verwende keine Rubriken oder Aussagen wie `Meine Empfehlung`, `Plausibler Ladeplan`, `Ideale Stopps`, `Stärkster Kandidat`, `Wichtige Hinweise: Vignette nötig`, wenn diese Inhalte nicht offiziell berechnet oder belegt sind.",
@@ -1720,6 +1772,11 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         lines.append(f"Hinweise: {' '.join(str(item) for item in payload.get('warnings') or [])}")
     if route_shape:
         lines.append(f"Route-Shape-Diagnostik: {json.dumps(route_shape, ensure_ascii=False)}")
+    if route_corridor and route_corridor.get("text"):
+        lines.append(f"Geprüfte Verlaufskette aus Google Routes: {route_corridor.get('text')}")
+        lines.append("Verlaufsketten-Regel: Du darfst exakt diese Kette verwenden oder weglassen. Ergänze, korrigiere oder erweitere sie nicht aus Weltwissen.")
+    else:
+        lines.append("Geprüfte Verlaufskette aus Google Routes: Nicht verfügbar. Keine Autobahn-/Straßenkette nennen.")
     if include_route_steps and route_steps and route_steps.get("steps"):
         lines.extend(["", "Streckenverlauf aus Google Routes:"])
         for step in route_steps.get("steps") or []:
@@ -1813,6 +1870,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
     stop_coverage = snapshot.get("stop_coverage") if isinstance(snapshot.get("stop_coverage"), dict) else {}
     energy_estimate = snapshot.get("energy_estimate") if isinstance(snapshot.get("energy_estimate"), dict) else {}
     route_steps = snapshot.get("route_steps") if isinstance(snapshot.get("route_steps"), dict) else {}
+    route_corridor = snapshot.get("route_corridor") if isinstance(snapshot.get("route_corridor"), dict) else {}
     include_route_steps = _is_route_course_request(user_message)
     lines = [
         "[Research Guard: Routen-Follow-up]",
@@ -1832,7 +1890,7 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Wenn der Nutzer zwei oder mehr Lade-/Tankstopps verlangt, aber nur gespeicherte Kandidaten vorliegen, liefere keine selbst gebaute Etappenplanung. Liste Kandidaten nach grober Routenposition und sage, dass Research Guard keine optimierte Mehrstopp-Route berechnet.",
         "Ordne Lade-/Tankkandidaten nicht frei zwischen Google-Routes-Schritten ein und erfinde keine Segmentkilometer zwischen Kandidaten.",
         "Nutze nur diese Rubriken: `Route`, `Energie-Check`, `Ladepunkt-Kandidaten`, `Grobe Einordnung`, `Nicht von Research Guard geprüft`, `Datenquelle`.",
-        "In der Rubrik `Route` sind nur Start, Ziel, Gesamtdistanz und Gesamtfahrzeit erlaubt. Keine Zeile `Verlauf:`, keine Autobahnen/Straßen, keine Pässe, keine Maut.",
+        "In der Rubrik `Route` sind nur Start, Ziel, Gesamtdistanz, Gesamtfahrzeit und die gespeicherte `Geprüfte Verlaufskette` erlaubt. Keine selbst gebaute Zeile `Verlauf:`, keine manuell ergänzten Autobahnen/Straßen, keine Pässe, keine Maut.",
         "`Streckenverlauf` nur bei ausdrücklicher Nachfrage und dann nur als nummerierte gespeicherte Google-Routes-Schritte, nie als Ein-Zeilen-Autobahnkette.",
         "Maut/Vignette nur als `nicht von Research Guard geprüft`, sofern keine offiziellen Mautdaten gespeichert sind.",
         "In `Grobe Einordnung` sind keine SoC-Prozente, Ladefenster, Ladezeit-Minuten, Segmentkilometer oder `das sollte reichen/durchbringen`-Aussagen erlaubt.",
@@ -1850,6 +1908,11 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         lines.append(f"Hinweise aus der letzten Route: {' '.join(str(item) for item in snapshot.get('warnings') or [])}")
     if route_shape:
         lines.append(f"Route-Shape-Diagnostik aus der letzten Route: {json.dumps(route_shape, ensure_ascii=False)}")
+    if route_corridor and route_corridor.get("text"):
+        lines.append(f"Gespeicherte geprüfte Verlaufskette aus Google Routes: {route_corridor.get('text')}")
+        lines.append("Verlaufsketten-Regel: Du darfst exakt diese Kette verwenden oder weglassen. Ergänze, korrigiere oder erweitere sie nicht aus Weltwissen.")
+    else:
+        lines.append("Gespeicherte geprüfte Verlaufskette aus Google Routes: Nicht verfügbar. Keine Autobahn-/Straßenkette nennen.")
     if include_route_steps and route_steps and route_steps.get("steps"):
         lines.extend(["", "Gespeicherter Streckenverlauf aus Google Routes:"])
         for step in route_steps.get("steps") or []:

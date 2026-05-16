@@ -1,5 +1,41 @@
 # Release Notes
 
+## v0.8.0-beta.19
+
+This beta reintroduces highway/road chains safely.
+
+### New
+
+- Research Guard now derives a compact `Geprüfte Verlaufskette` mechanically from Google Routes step instructions.
+- Example shape: `A73 -> A9 -> E45`.
+- The model may use exactly that chain or omit it, but must not add, correct, or extend it from world knowledge.
+
+### Still Guarded
+
+- Full numbered Google Routes steps are still exposed only when the user explicitly asks for route course/highways/roads.
+- Toll/vignette/pass/elevation claims remain blocked unless official data is injected.
+- The verified corridor is not an optimized route explanation, toll source, or charger-stop sequence.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.19
+```
+
+Expected tests:
+
+```text
+Ran 73 tests
+OK
+```
+
 ## v0.8.0-beta.18
 
 This beta removes route-course data from normal charging-plan answers.

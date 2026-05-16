@@ -1,3 +1,12 @@
+## 2026-05-16 - Geprüfte Verlaufskette aus Google-Routes-Schritten
+- **Typ:** feature/fix
+- **Problem:** Autobahnketten sind für Routenplanung nützlich, durften aber nicht aus Modellwissen rekonstruiert werden.
+- **Änderung:** Research Guard extrahiert jetzt selbst eine kompakte `Geprüfte Verlaufskette` aus den Google-Routes-Schritten, z. B. `A73 -> A9 -> E45`.
+- **Guardrail:** Hermes darf exakt diese Kette verwenden oder weglassen, aber nicht manuell ergänzen, korrigieren oder aus Weltwissen erweitern.
+- **Details:** Nummerierte Google-Routes-Schritte bleiben weiterhin nur bei ausdrücklicher Streckenverlaufsfrage im Antwortkontext.
+- **Version:** Plugin version raised to `0.8.0-beta.19`.
+- **Tests:** Test suite expanded with route-corridor extraction coverage.
+
 ## 2026-05-16 - Normale Ladeplanung ohne Streckenverlauf-Daten
 - **Typ:** fix
 - **Problem:** Hermes konnte in normalen Ladeplanungsantworten weiterhin eine `Verlauf:`-Zeile oder Autobahnkette erzeugen, weil Google-Routes-Schritte im Kontext sichtbar waren.
