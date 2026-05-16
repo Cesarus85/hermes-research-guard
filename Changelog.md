@@ -1,3 +1,12 @@
+## 2026-05-16 - Kompakte Status-Erklärung portiert
+- **Typ:** feature
+- **Auslöser:** Letzter offensichtlicher Angleichungspunkt zur OpenClaw-Variante.
+- **Änderung:** Status-Entscheidungen enthalten jetzt `reason_summary`, `visible_effect_summary` und `user_explanation`.
+- **Nutzen:** `research_guard_status` erklärt nicht-technisch, warum Research Guard lief oder übersprungen wurde und welchen sichtbaren Effekt das hatte.
+- **Diagnostik:** Die Kurz-Erklärung steht zusätzlich im verschachtelten `diagnostic`-Block und als `summary.latest_explanation`.
+- **Version:** Plugin-Version auf `0.7.4` erhöht.
+- **Tests:** Coverage für übersprungene lokale Infrastruktur und injizierte Faktenrecherche ergänzt.
+
 ## 2026-05-15 - Cache- und Performance-Härtung ergänzt
 - **Typ:** feature
 - **Auslöser:** Nächster Angleichungsschritt nach OpenClaw Source-Profilen: stabilerer Dauerbetrieb.

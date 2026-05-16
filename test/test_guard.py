@@ -357,8 +357,12 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
         self.assertEqual(decision["category"], "checked_and_skipped")
         self.assertEqual(decision["visible_effect"], "none")
+        self.assertEqual(decision["reason_summary"], "Die Frage betraf lokale Infrastruktur oder private Systemdetails und wurde nicht ins Web geschickt.")
+        self.assertEqual(decision["visible_effect_summary"], "Es gab keinen sichtbaren Quellenkontext für die Modellantwort.")
+        self.assertIn("nicht ins Web geschickt", decision["user_explanation"])
         self.assertEqual(decision["diagnostic"]["category"], "checked_and_skipped")
         self.assertFalse(decision["diagnostic"]["searched"])
+        self.assertIn("user_explanation", decision["diagnostic"])
         self.assertIn("skipped research", decision["diagnostic"]["explanation"])
         self.assertIn("action=skipped", decision["evidence"])
         self.assertIn("query_debug", decision)
@@ -368,6 +372,28 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertNotIn("test@example.com", decision["prompt_preview"])
         self.assertIn("cache", status)
         self.assertIn("config", status)
+        self.assertIn("latest_explanation", status["summary"])
+
+    def test_status_user_explanation_for_injected_research_decision(self):
+        guard.DECISIONS.clear()
+        guard._record_decision(
+            "injected",
+            "factual-risk",
+            provider="duckduckgo-html",
+            query="Wer ist Bürgermeister von Forchheim?",
+            confidence="high",
+            score=82,
+            usable_result_count=3,
+            blocked_result_count=0,
+        )
+        status = json.loads(guard.research_guard_status({"limit": 1}))
+        decision = status["decisions"][0]
+
+        self.assertEqual(decision["visible_effect"], "sources_injected")
+        self.assertIn("faktische oder aktuelle Wissensfrage", decision["reason_summary"])
+        self.assertIn("Quellen wurden", decision["visible_effect_summary"])
+        self.assertIn("Quellenbewertung: high (82/100).", decision["user_explanation"])
+        self.assertEqual(status["summary"]["latest_explanation"], decision["user_explanation"])
 
     def test_query_debug_is_redacted_when_stored_in_decisions(self):
         guard.DECISIONS.clear()

@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.7.3"
+__version__ = "0.7.4"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 MAX_DECISIONS = 30
 DECISIONS: list[dict[str, Any]] = []
@@ -595,6 +595,61 @@ def _visible_effect(decision: dict[str, Any]) -> str:
     return "none"
 
 
+def _reason_summary(decision: dict[str, Any], category: str, searched: bool) -> str:
+    reason = str(decision.get("reason") or "")
+    if category == "researched_and_injected":
+        if reason == "explicit":
+            return "Research Guard lief, weil die Suche manuell erzwungen wurde."
+        if reason in {"factual-risk", "general-knowledge", "current-fact", "aggressive-question"}:
+            return "Research Guard lief, weil die Frage wie eine faktische oder aktuelle Wissensfrage eingestuft wurde."
+        return f"Research Guard lief und hat Quellen ergänzt. Auslöser: {reason}."
+    if category == "manual_research":
+        return "Research Guard wurde als manuelles Suchwerkzeug aufgerufen."
+    if category == "researched_but_not_injected":
+        return "Research Guard hat gesucht, aber wegen Quellenqualität, Confidence oder Ergebnismangel nichts injiziert."
+    if category == "failed":
+        return "Research Guard konnte keine nutzbare Recherche abschließen."
+    if category == "checked_and_skipped":
+        skip_reasons = {
+            "plugin disabled": "Research Guard ist deaktiviert.",
+            "opt-out": "Research Guard wurde für diese Frage manuell übersprungen.",
+            "too-short": "Die Nachricht war zu kurz für eine sinnvolle Recherche.",
+            "source-followup": "Das war eine Quellen-Nachfrage zur vorherigen Antwort, keine neue Suchfrage.",
+            "context-followup": "Das war eine kontextabhängige Anschlussfrage, keine neue Suchfrage.",
+            "status-request": "Das war eine Status-/Diagnosefrage zu Research Guard.",
+            "no-trigger": "Die Frage erfüllte keine Research-Guard-Auslöser.",
+            "local-infrastructure": "Die Frage betraf lokale Infrastruktur oder private Systemdetails und wurde nicht ins Web geschickt.",
+            "personal-or-memory": "Die Frage wirkte persönlich, privat oder erinnerungsbezogen und wurde nicht ins Web geschickt.",
+            "code-or-file-task": "Die Frage wirkte wie eine Code-, Datei- oder Workspace-Aufgabe und wurde nicht recherchiert.",
+            "slash-command": "Die Nachricht war ein Slash-Command und wurde nicht automatisch recherchiert.",
+            "internal-note": "Die Nachricht war eine interne System-/Gateway-Notiz und wurde ignoriert.",
+            "non-local model gate": "Research Guard wurde wegen Modell-/Provider-Gate übersprungen.",
+            "empty query after cleanup": "Nach Bereinigung blieb keine sinnvolle Suchanfrage übrig.",
+        }
+        return skip_reasons.get(reason, f"Research Guard hat geprüft, aber nicht gesucht. Grund: {reason}.")
+    if searched:
+        return "Research Guard war beteiligt; Details stehen in der Diagnose."
+    return "Research Guard war für diese Antwort nicht sichtbar beteiligt."
+
+
+def _visible_effect_summary(visible_effect: str) -> str:
+    return {
+        "sources_injected": "Quellen wurden in den aktuellen Modellkontext injiziert.",
+        "manual_tool_result": "Es wurde ein manuelles Suchergebnis zurückgegeben.",
+        "none": "Es gab keinen sichtbaren Quellenkontext für die Modellantwort.",
+        "error": "Es gab einen Fehler statt nutzbarem Quellenkontext.",
+    }.get(visible_effect, "Der sichtbare Effekt ist unbekannt.")
+
+
+def _user_explanation(decision: dict[str, Any], category: str, visible_effect: str, searched: bool) -> str:
+    parts = [_reason_summary(decision, category, searched), _visible_effect_summary(visible_effect)]
+    confidence = decision.get("confidence")
+    score = decision.get("score")
+    if confidence is not None or score is not None:
+        parts.append(f"Quellenbewertung: {confidence or 'unknown'}" + (f" ({score}/100)." if score is not None else "."))
+    return " ".join(parts)
+
+
 def _provider_path(provider: str | None) -> str | None:
     if not provider:
         return None
@@ -626,12 +681,18 @@ def _diagnose_decision(decision: dict[str, Any]) -> dict[str, Any]:
     category = _decision_category(decision)
     visible_effect = _visible_effect(decision)
     searched = _decision_was_searched(decision)
+    reason_summary = _reason_summary(decision, category, searched)
+    visible_effect_summary = _visible_effect_summary(visible_effect)
+    user_explanation = _user_explanation(decision, category, visible_effect, searched)
     manual_tool = decision.get("action") == "manual_search"
     failed = category == "failed"
     nested_diagnostic = {
         "guard_involved": True,
         "category": category,
         "visible_effect": visible_effect,
+        "reason_summary": reason_summary,
+        "visible_effect_summary": visible_effect_summary,
+        "user_explanation": user_explanation,
         "searched": searched,
         "injected_context": decision.get("action") == "injected",
         "manual_tool": manual_tool,
@@ -642,6 +703,9 @@ def _diagnose_decision(decision: dict[str, Any]) -> dict[str, Any]:
     }
     diagnostic["category"] = category
     diagnostic["visible_effect"] = visible_effect
+    diagnostic["reason_summary"] = reason_summary
+    diagnostic["visible_effect_summary"] = visible_effect_summary
+    diagnostic["user_explanation"] = user_explanation
     evidence = [f"action={decision.get('action')}", f"reason={decision.get('reason')}"]
     for field, label in (
         ("provider", "provider"),
@@ -693,6 +757,7 @@ def _summarize_decision_history(decisions: list[dict[str, Any]]) -> dict[str, An
         **counts,
         "latest": decisions[0].get("category") if decisions else None,
         "latest_visible_effect": decisions[0].get("visible_effect") if decisions else None,
+        "latest_explanation": decisions[0].get("user_explanation") if decisions else None,
     }
 
 
@@ -1990,7 +2055,8 @@ def research_guard_status(args: dict, **kwargs) -> str:
             "decisions": decisions,
             "diagnostics": {
                 "decision_fields": [
-                    "diagnostic", "category", "visible_effect", "evidence", "query_debug",
+                    "diagnostic", "category", "visible_effect", "reason_summary",
+                    "visible_effect_summary", "user_explanation", "evidence", "query_debug",
                     "confidence", "score", "usable_result_count", "blocked_result_count",
                     "evidence_diversity", "query_profiles", "source_profiles", "profile_coverage",
                     "warnings", "rewrite_strategy",

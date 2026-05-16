@@ -178,7 +178,7 @@ Goal: make every Research Guard decision inspectable.
 - [x] Add diagnostic categories: `researched_and_injected`, `manual_research`, `researched_but_not_injected`, `checked_and_skipped`, `failed`.
 - [x] Add visible effect: `sources_injected`, `manual_tool_result`, `none`, `error`.
 - [x] Keep status output diagnostic-only through tool text and clear schema description.
-- [ ] PORT Add compact non-technical explanation for "why did this run?".
+- [x] Add compact non-technical explanation for "why did this run?".
 
 ## v0.10 - Cache And Performance Hardening
 
