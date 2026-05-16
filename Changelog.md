@@ -1,3 +1,12 @@
+## 2026-05-16 - EV-Ladeplanungs-Antwortdisziplin nachgeschärft
+- **Typ:** fix
+- **Problem:** Lokale Modelle konnten trotz Kandidatenmodus noch konkrete Ladezeiten, 20-80%-Fenster, Ziel-/Rest-SoC, Start-Ladestopps oder Standort-Komfortdetails erfinden.
+- **Änderung:** Routen-Kontext verbietet jetzt explizit erfundene Ladezeiten, SoC-Werte, Standortausstattung, Betreiberqualität, Preise und Tesla-Fremdmarken-Details, sofern sie nicht im Kontext stehen.
+- **Startakku:** Formulierungen wie `voll geladen`, `voller Akku`, `mit vollem Akku` und `100%` werden als `start_soc_percent=100` erkannt. Startbereich-Ladepunkte sollen dann nur noch als Vorab-Optionen erscheinen, nicht als erster Routenstopp.
+- **Connector-Guardrail:** Ladepunkte ohne Connector-/Leistungsdaten dürfen nur als `Kandidat zu prüfen` genannt werden.
+- **Version:** Plugin version raised to `0.8.0-beta.13`.
+- **Tests:** Test suite expanded from 66 to 67 dependency-free tests.
+
 ## 2026-05-16 - EV-Reichweiten-Plausibilitätsrechnung ergänzt
 - **Typ:** fix
 - **Problem:** Lokale Modelle konnten bei EV-Routen einfache Reichweitenmathematik falsch ausrechnen, z. B. aus 77 kWh und 16-18 kWh/100 km nur 125-135 km Reichweite ableiten.

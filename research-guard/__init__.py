@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.12"
+__version__ = "0.8.0-beta.13"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -1069,6 +1069,8 @@ def _extract_route_request(message: str) -> dict[str, Any]:
     soc_match = re.search(r"\b(?:soc|akku|batterie|start)\s*(?:bei|mit|=|:)?\s*(\d{1,3})\s*%", text, flags=re.IGNORECASE)
     if soc_match:
         preferences["start_soc_percent"] = max(0, min(100, int(soc_match.group(1))))
+    elif re.search(r"\b(?:voll\s+geladen|vollgeladen|voller\s+akku|mit\s+vollem\s+akku|akku\s+voll|100\s*%)\b", text, flags=re.IGNORECASE):
+        preferences["start_soc_percent"] = 100
     return {
         "origin": origin,
         "destination": destination,
@@ -1566,6 +1568,11 @@ def _format_route_context(payload: dict[str, Any], request: dict[str, Any], mode
         "Erfinde keine exakten SoC-Verläufe, Ladezeiten, Ladeleistungen, Kraftstoffpreise, Verfügbarkeit oder optimale Stopps, wenn sie nicht ausdrücklich im Kontext stehen.",
         "Wenn Akku, Verbrauch, Start-SoC, gewünschter Ziel-SoC, Ladeleistung, Kraftstoffart oder Reichweite fehlen, nenne realistische Annahmen ausdrücklich oder frage kurz nach.",
         "Energie-Mathe-Pflicht: Wenn du Reichweite, Energiebedarf oder Anzahl der Ladestopps schätzt, nutze die unten stehende einfache Plausibilitätsrechnung. Rechne `Reichweite = Akku-kWh / Verbrauch-kWh-pro-100km * 100` und vermeide offensichtliche Rechenfehler.",
+        "Start-Ladepunkt-Regel: Wenn der Nutzer mit vollem Akku/100% startet oder kein Startladen verlangt, formuliere Startbereich-Ladepunkte nur als Vorab-Optionen. Schreibe nicht `Start voll an Station X` und mache daraus keinen ersten Routenstopp.",
+        "SoC-/Zeit-Regel: Nenne keine Werte wie `20-80%`, `20-30 Min`, `ankommen mit 15-25%`, Ladezeit, Ziel-SoC oder Rest-SoC, außer diese Werte stehen ausdrücklich im Research-Guard-Kontext. Aus Energie-Plausibilität allein darfst du nur grobe Reichweite/Energiebedarf/Minimum an Zwischenladebedarf ableiten.",
+        "Connector-Regel: Wenn ein Ladepunkt keine Connector-/Leistungsdaten im Kontext hat, nenne ihn nur als `Kandidat zu prüfen` und behaupte keine Kompatibilität, Ladeleistung oder Eignung.",
+        "Standort-Komfort-Regel: Erfinde keine Aussagen zu Raststätten, Kaffee, WC, Shops, Zuverlässigkeit, Preisen oder Betreiberqualität, wenn diese nicht im Kontext stehen.",
+        "Tesla-CCS-Regel: Für Tesla Supercharger in Europa sage nur, dass ID.7 CCS nutzt und Fremdmarken-Freischaltung vorab geprüft werden muss, wenn der Kontext keine explizite Freigabe enthält. Erfinde keine Adapter-Details.",
         "Wenn du Ladepunkte nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte funktionierende Stopps.",
         "Wenn du Tankstellen nennst, formuliere sie als Kandidaten entlang/nahe der Route, nicht als garantierte Kraftstoffverfügbarkeit oder Preisangabe.",
         "Wenn Lade-/Tankkandidaten nur an Start, Ziel oder einem einzelnen Routenpunkt gefunden wurden, sage genau das. Ergänze KEINE unterwegs liegenden Stopps aus Trainingswissen.",
@@ -1669,6 +1676,9 @@ def _format_route_followup_context(decision: dict[str, Any], user_message: str, 
         "Nenne ausschließlich die gespeicherten Places-Kandidaten und bezeichne sie nicht als ideal, optimal oder garantiert empfohlen, außer diese Optimierung steht ausdrücklich im Kontext.",
         "Erfinde keine zusätzlichen Ladeparks, Tankstellen, Segment-Kilometer, SoC-Werte, Ladezeiten, Ladeleistungen, Preise oder Live-Verfügbarkeiten.",
         "Wenn du Reichweite, Energiebedarf oder Ladestopp-Anzahl schätzt, nutze nur die gespeicherte Energie-Plausibilitätsrechnung und rechne keine widersprüchlichen Werte aus.",
+        "Nenne keine 20-80%-Fenster, Minuten-Ladezeiten, Ziel-SoC oder Rest-SoC, wenn diese nicht ausdrücklich im gespeicherten Kontext stehen.",
+        "Startbereich-Ladepunkte sind bei vollem Startakku nur Vorab-Optionen, nicht automatisch der erste Routenstopp.",
+        "Erfinde keine Aussagen zu Raststätten, Kaffee, WC, Shops, Zuverlässigkeit, Preisen, Betreiberqualität oder Tesla-Fremdmarken-Freigaben.",
         f"Aktuelle Anschlussfrage: {_redact_prompt_preview(user_message, 240)}",
         f"Modell: {model or 'unknown'}",
         f"Ursprüngliche Route: {snapshot.get('origin') or 'unbekannt'} -> {snapshot.get('destination') or 'unbekannt'}",

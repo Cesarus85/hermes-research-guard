@@ -961,6 +961,13 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertTrue(request["needs_ev_chargers"])
         self.assertNotIn("battery_kwh", request["preferences"])
 
+    def test_route_planning_detects_full_start_battery(self):
+        request = guard._extract_route_request(
+            "Plane die Route von Forchheim nach Riva del Garda mit einem VW ID 7. Ich starte mit vollem Akku."
+        )
+
+        self.assertEqual(request["preferences"]["start_soc_percent"], 100)
+
     def test_route_energy_estimate_provides_range_plausibility_math(self):
         estimate = guard._route_energy_estimate(
             {"distance_meters": 588000},
@@ -1083,6 +1090,11 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Energie-Plausibilitätsrechnung", result["context"])
         self.assertIn("full_battery_range_km_band", result["context"])
         self.assertIn("range_km = battery_kwh / consumption_kwh_per_100km * 100", result["context"])
+        self.assertIn("Start-Ladepunkt-Regel", result["context"])
+        self.assertIn("keine Werte wie `20-80%`, `20-30 Min`, `ankommen mit 15-25%`", result["context"])
+        self.assertIn("Connector-Regel", result["context"])
+        self.assertIn("Standort-Komfort-Regel", result["context"])
+        self.assertIn("Tesla-CCS-Regel", result["context"])
         self.assertIn("Datenquelle (Research Guard): Google Maps Platform Routes/Places", result["context"])
         self.assertEqual(guard.DECISIONS[-1]["action"], "injected")
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-planning")
@@ -1387,6 +1399,8 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Example Fast Charge", result["context"])
         self.assertIn("keine optimierte Stoppreihenfolge", result["context"])
         self.assertIn("Erfinde keine zusätzlichen Ladeparks", result["context"])
+        self.assertIn("Nenne keine 20-80%-Fenster", result["context"])
+        self.assertIn("Startbereich-Ladepunkte sind bei vollem Startakku nur Vorab-Optionen", result["context"])
         self.assertEqual(guard.DECISIONS[-1]["reason"], "route-followup-context")
 
     def test_route_followup_refreshes_google_for_return_trip(self):

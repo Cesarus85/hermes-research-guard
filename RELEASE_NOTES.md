@@ -1,5 +1,37 @@
 # Release Notes
 
+## v0.8.0-beta.13
+
+This beta tightens EV route-answer discipline again.
+
+### Fixed
+
+- Route context now explicitly forbids invented 20-80% windows, charging minutes, target SoC, arrival SoC, charger quality, amenities, prices, and operator reliability claims.
+- Start-area chargers must be treated as pre-departure options when the user starts full, not as the first route stop.
+- Prompts such as `voll geladen`, `voller Akku`, `mit vollem Akku`, or `100%` are now recognized as `start_soc_percent=100`.
+- Chargers without connector or power data must be described only as candidates to check, not as confirmed suitable charging stops.
+- Tesla Supercharger wording now tells the model to say that VW ID.7 uses CCS and that third-party access should be checked when Research Guard did not provide explicit access data.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.13
+```
+
+Expected tests:
+
+```text
+Ran 67 tests
+OK
+```
+
 ## v0.8.0-beta.12
 
 This beta adds EV range plausibility math to route context.
