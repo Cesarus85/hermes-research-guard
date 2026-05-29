@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.23`
+**Beta release:** `v0.8.0-beta.24`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -146,7 +146,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.23
+version: 0.8.0-beta.24
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -183,7 +183,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.23
+version: 0.8.0-beta.24
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -611,7 +611,7 @@ Run tests:
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-Current beta test count: `77`.
+Current beta test count: `78`.
 
 ## Roadmap
 

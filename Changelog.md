@@ -1,3 +1,12 @@
+## 2026-05-29 - Kommunale Amtsfragen bekommen Zusatzsuche
+- **Typ:** fix
+- **Problem:** Bei Brave konnte die erste Amts-Query nur alte oder stellvertretende offizielle Seiten liefern. Dann half das Rollen-Scoring nicht, weil die aktuelle Primärrollen-Seite gar nicht im Ergebnis-Set war.
+- **Änderung:** Municipal-office-Queries enthalten jetzt genderisierte Amtsbegriffe, `Stadtspitze`, `Amtsinhaber` und `aktuell`.
+- **Fallback:** Für Bürgermeister-/Oberbürgermeister-/Landratsfragen mischt Research Guard pro Provider gezielte Zusatzqueries bei, bevor Scoring und Kontextformatierung laufen.
+- **Effekt:** Offizielle Seiten zu `Oberbürgermeisterin ... steht seit ... an der Spitze` können gegen Seiten wie `2. Bürgermeister`/`Vertretungsfall` antreten, statt durch Provider-Ranking unsichtbar zu bleiben.
+- **Version:** Plugin version raised to `0.8.0-beta.24`.
+- **Tests:** Coverage für die supplemental municipal-office query ergänzt.
+
 ## 2026-05-29 - Rollen- und Varianten-Disambiguierung ergänzt
 - **Typ:** fix
 - **Problem:** Brave und andere Suchprovider können offizielle Treffer zu Nebenrollen höher ranken, z. B. `Bürgermeister`/Stellvertretung statt aktueller `Oberbürgermeisterin`.

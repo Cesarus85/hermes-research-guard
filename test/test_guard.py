@@ -76,7 +76,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(guard._clean_message_for_research(prompt), "Wer ist Bürgermeister von Forchheim?")
         self.assertEqual(
             guard._build_search_query(prompt),
-            "Forchheim Bürgermeister Oberbürgermeister Rathaus offizielle Stadt Verwaltung",
+            "Forchheim Oberbürgermeisterin Oberbürgermeister Bürgermeisterin Bürgermeister Stadtspitze aktuelle Amtsinhaber offizielle Stadt Rathaus Verwaltung",
         )
         self.assertTrue(guard._should_research(prompt)[0])
 
@@ -163,7 +163,7 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         )
         self.assertEqual(
             guard._build_search_query("Wer ist Bürgermeister von Forchheim?"),
-            "Forchheim Bürgermeister Oberbürgermeister Rathaus offizielle Stadt Verwaltung",
+            "Forchheim Oberbürgermeisterin Oberbürgermeister Bürgermeisterin Bürgermeister Stadtspitze aktuelle Amtsinhaber offizielle Stadt Rathaus Verwaltung",
         )
         self.assertEqual(
             guard._query_debug("Welche Version von Python ist aktuell?")["rewrite_strategy"],
@@ -788,6 +788,51 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
         self.assertTrue(payload["success"])
         self.assertFalse(saved)
+
+    def test_municipal_office_search_adds_supplemental_current_role_query(self):
+        original_load = guard._load_cache
+        original_save = guard._save_cache
+        original_order = guard._provider_order
+        original_run = guard._run_provider
+        calls = []
+        try:
+            guard._load_cache = lambda: {}
+            guard._save_cache = lambda cache: None
+            guard._provider_order = lambda: ["brave"]
+
+            def fake_run(provider, query, limit):
+                calls.append(query)
+                if "seit aktuell" in query:
+                    return [
+                        {
+                            "title": "Oberbürgermeisterin Martina Hebendanz",
+                            "url": "https://www.forchheim.de/rathaus-service/stadtverwaltung/oberbuergermeisterin-buergermeister/oberbuergermeisterin-martina-hebendanz",
+                            "snippet": "Oberbürgermeisterin Martina Hebendanz steht seit dem 1. Mai 2026 an der Spitze der Stadt Forchheim.",
+                            "age": "2026-05-01",
+                        }
+                    ]
+                return [
+                    {
+                        "title": "Stadt Forchheim Bürgermeister",
+                        "url": "https://www.forchheim.de/rathaus-service/stadtverwaltung/aemteruebersicht/buergermeister",
+                        "snippet": "Im Vertretungsfall übernimmt Bürgermeister Udo Schönfelder die Amtsgeschäfte.",
+                        "age": "2026-05-01",
+                    }
+                ]
+
+            guard._run_provider = fake_run
+            query = guard._build_search_query("Wer ist Bürgermeister von Forchheim?")
+            payload = guard._search(query, 5)
+            quality = guard._score_research_results(payload["results"], payload["query"])
+        finally:
+            guard._load_cache = original_load
+            guard._save_cache = original_save
+            guard._provider_order = original_order
+            guard._run_provider = original_run
+
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertIn("supplemental_queries", payload)
+        self.assertIn("Martina Hebendanz", quality["results"][0]["title"])
 
     def test_provider_order_honors_configuration_and_optional_providers(self):
         old_provider = os.environ.get("RESEARCH_GUARD_PROVIDER")

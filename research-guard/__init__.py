@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.23"
+__version__ = "0.8.0-beta.24"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -496,7 +496,9 @@ def _rewrite_search_query(query: str) -> tuple[str, str]:
         return "", "empty"
     subject = _extract_query_subject(cleaned)
     if re.search(r"\b(bürgermeister|oberbürgermeister|mayor|landrat)\b", lower):
-        return _dedupe_query_terms(f"{subject} Bürgermeister Oberbürgermeister Rathaus offizielle Stadt Verwaltung"), "municipal-office"
+        return _dedupe_query_terms(
+            f"{subject} Oberbürgermeisterin Oberbürgermeister Bürgermeisterin Bürgermeister Stadtspitze aktuelle Amtsinhaber offizielle Stadt Rathaus Verwaltung"
+        ), "municipal-office"
     if re.search(r"\b(einwohner|einwohnerzahl|bevölkerung|population|inhabitants|residents)\b", lower):
         subject = _extract_local_fact_subject(cleaned)
         return _dedupe_query_terms(f"{subject} Einwohner Einwohnerzahl Bevölkerung Statistik offizielle Stadt"), "municipal-population"
@@ -2115,6 +2117,41 @@ def _is_role_disambiguation_query(query: str) -> bool:
     ))
 
 
+def _is_municipal_office_query(query: str) -> bool:
+    return bool(re.search(r"\b(bürgermeister|oberbürgermeister|bürgermeisterin|oberbürgermeisterin|mayor|landrat|landrätin)\b", query or "", flags=re.IGNORECASE))
+
+
+def _municipal_office_supplemental_queries(query: str) -> list[str]:
+    if not _is_municipal_office_query(query):
+        return []
+    subject = _extract_query_subject(query)
+    if not subject:
+        return []
+    lower = (query or "").lower()
+    if re.search(r"\b(landrat|landrätin)\b", lower):
+        return [
+            _dedupe_query_terms(f"{subject} Landrat Landrätin Amtsinhaber Kreisspitze Landkreis offiziell aktuell"),
+        ]
+    return [
+        _dedupe_query_terms(
+            f"{subject} Oberbürgermeisterin Oberbürgermeister Bürgermeisterin Bürgermeister Stadtspitze Amtsinhaber seit aktuell offizielle Stadt"
+        ),
+        _dedupe_query_terms(f"{subject} Oberbürgermeisterin Bürgermeister Stadtspitze"),
+    ]
+
+
+def _merge_supplemental_results(results: list[dict[str, str]], supplemental: list[dict[str, str]]) -> list[dict[str, str]]:
+    merged: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in [*results, *supplemental]:
+        key = _canonical_source_key(str(item.get("url") or ""))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+    return merged
+
+
 def _is_variant_disambiguation_query(query: str) -> bool:
     return bool(re.search(
         r"\b(tracklist|titelliste|songliste|album|version|latest version|aktuelle version|"
@@ -3145,6 +3182,19 @@ def _search(query: str, limit: int, deep_profile: str = "off") -> dict[str, Any]
             if not results:
                 errors.append(f"{slug}: no results")
                 continue
+            supplemental_queries: list[str] = []
+            if _is_municipal_office_query(query):
+                for supplemental_query in _municipal_office_supplemental_queries(query):
+                    if supplemental_query.lower() == query.strip().lower() or supplemental_query in supplemental_queries:
+                        continue
+                    try:
+                        supplemental = _run_provider_with_timeout(provider, supplemental_query, max(limit, 8))
+                    except Exception as exc:
+                        errors.append(f"{slug} supplemental municipal-office: {exc}")
+                        continue
+                    if supplemental:
+                        supplemental_queries.append(supplemental_query)
+                        results = _merge_supplemental_results(results, supplemental)
             key = cache_key(slug)
             payload = {
                 "success": True,
@@ -3155,6 +3205,8 @@ def _search(query: str, limit: int, deep_profile: str = "off") -> dict[str, Any]
                 "cached": False,
                 "cache_key": key,
             }
+            if supplemental_queries:
+                payload["supplemental_queries"] = supplemental_queries
             if errors:
                 payload["fallback_errors"] = errors[-4:]
             if cache_ttl:

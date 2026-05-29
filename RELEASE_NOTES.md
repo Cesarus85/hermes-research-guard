@@ -1,5 +1,38 @@
 # Release Notes
 
+## v0.8.0-beta.24
+
+This beta fixes the remaining Brave-provider failure mode for municipal office questions.
+
+### Fixed
+
+- Municipal office rewrites now include gendered office terms, `Stadtspitze`, `Amtsinhaber`, and `aktuell`.
+- Bürgermeister/Oberbürgermeister/Landrat questions now run targeted supplemental office queries before scoring.
+- Supplemental results are merged with the provider's original result set so current primary-office pages can compete against official deputy, representative, or stale pages.
+
+### Example
+
+If Brave initially returns only `Bürgermeister Udo Schönfelder` and an old `Oberbürgermeister` page for Forchheim, Research Guard now also asks for current primary-office pages such as `Oberbürgermeisterin ... Stadtspitze ... aktuell` before ranking.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.24
+```
+
+Expected tests:
+
+```text
+Ran 78 tests
+```
+
 ## v0.8.0-beta.23
 
 This beta adds role and variant disambiguation for provider-dependent search result ordering.
