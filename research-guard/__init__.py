@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.22"
+__version__ = "0.8.0-beta.23"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -2099,6 +2099,31 @@ def _domain_matches_any(domain: str, candidates: list[str]) -> bool:
     return any(domain == candidate or domain.endswith(f".{candidate}") for candidate in candidates)
 
 
+def _is_role_disambiguation_query(query: str) -> bool:
+    return bool(re.search(
+        r"\b("
+        r"bürgermeister|oberbürgermeister|landrat|ministerpräsident|kanzler|präsident|präsidentin|"
+        r"vorsitzende?r?|amtsleiter|dezernent|botschafter|ceo|cfo|cto|cio|coo|"
+        r"geschäftsführer|geschaeftsfuehrer|vorstandsvorsitzende?r?|vorstand|aufsichtsrat|"
+        r"trainer|bundestrainer|coach|kapitän|kapitaen|rektor|präsident.*universität|"
+        r"dekan|institutsleiter|pfarrer|bischof|intendant|direktor|richter|staatsanwalt|"
+        r"mayor|governor|president|prime minister|chair|chairman|chairwoman|director|"
+        r"head of|leader|ambassador"
+        r")\b",
+        query or "",
+        flags=re.IGNORECASE,
+    ))
+
+
+def _is_variant_disambiguation_query(query: str) -> bool:
+    return bool(re.search(
+        r"\b(tracklist|titelliste|songliste|album|version|latest version|aktuelle version|"
+        r"neueste version|release|stable|preis|pricing|price)\b",
+        query or "",
+        flags=re.IGNORECASE,
+    ))
+
+
 def _query_source_profiles(query: str) -> list[str]:
     lower = (query or "").lower()
     profiles: list[str] = []
@@ -2125,6 +2150,10 @@ def _query_source_profiles(query: str) -> list[str]:
         profiles.append("price-product")
     if _is_freshness_sensitive_query(query):
         profiles.append("news-current")
+    if _is_role_disambiguation_query(query):
+        profiles.append("role-disambiguation")
+    if _is_variant_disambiguation_query(query):
+        profiles.append("variant-disambiguation")
     return sorted(set(profiles))
 
 
@@ -2242,6 +2271,70 @@ def _is_municipal_source(domain: str, text: str, query: str) -> bool:
     return bool(re.search(r"\b(stadt|gemeinde|landkreis|rathaus|verwaltung|official city|city hall|municipal|bürgermeister|oberbürgermeister)\b", text, flags=re.IGNORECASE))
 
 
+def _role_disambiguation_adjustment(text: str, query: str) -> tuple[int, list[str], list[str], list[str]]:
+    if not _is_role_disambiguation_query(query):
+        return 0, [], [], []
+
+    profiles: list[str] = []
+    signals: list[str] = []
+    warnings: list[str] = []
+    delta = 0
+
+    primary_patterns = [
+        r"\b(amtierende?r?|current|seit\s+(?:dem\s+)?\d{1,2}\.|seit\s+\d{4}|steht\s+.*\ban der spitze|leitet)\b",
+        r"\b(neue?r?|gewählte?r?|gewaehlte?r?)\s+(oberbürgermeister(?:in)?|bürgermeister(?:in)?|landrat|ceo|geschäftsführer|trainer|präsident(?:in)?)\b",
+        r"\b(oberbürgermeister(?:in)?|bürgermeister(?:in)?|landrat|ministerpräsident(?:in)?|kanzler(?:in)?|ceo|geschäftsführer(?:in)?|geschaeftsfuehrer(?:in)?|vorstandsvorsitzende?r?|cheftrainer(?:in)?|trainer(?:in)?|präsident(?:in)?|präsident\s+der|president|prime minister|mayor|governor)\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]+",
+        r"\b(bürgermeister|mayor|ceo|trainer|präsident|president)\s*:\s*[A-ZÄÖÜ][\wÄÖÜäöüß.'-]+",
+    ]
+    secondary_patterns = [
+        r"\b(stellvertret(?:er|erin|end|ende|ender)?|vertretungsfall|vertreter|vize|vice|deputy|assistant|"
+        r"acting|interim|kommissarisch|ehemalig(?:e|er|en)?|former|ex-|kandidat(?:in)?|candidate|designiert|"
+        r"zweite?r?|2\.|ii\.|co-trainer|cotrain|aufsichtsrat|aufsichtsratsvorsitz|prokurist|"
+        r"ehrenpräsident|emerit(?:us|iert)|weihbischof|generalvikar|beigeordnet(?:e|er)?)\b",
+    ]
+
+    has_primary = any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in primary_patterns)
+    has_secondary = any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in secondary_patterns)
+
+    if has_primary:
+        delta += 18
+        signals.append("primary-role-match")
+        profiles.append("primary-role")
+    if has_secondary:
+        delta -= 28
+        warnings.append("Related secondary/former/candidate role; verify against the primary current office.")
+        profiles.append("secondary-role")
+    if has_primary and has_secondary:
+        warnings.append("Mixed role signals in source snippet; distinguish primary office from deputy/former/candidate roles.")
+    return delta, signals, warnings, profiles
+
+
+def _variant_disambiguation_adjustment(text: str, query: str) -> tuple[int, list[str], list[str], list[str]]:
+    if not _is_variant_disambiguation_query(query):
+        return 0, [], [], []
+
+    profiles: list[str] = []
+    signals: list[str] = []
+    warnings: list[str] = []
+    delta = 0
+    stable_release_query = re.search(r"\b(latest version|aktuelle version|neueste version|stable|release)\b", query, flags=re.IGNORECASE)
+    tracklist_query = re.search(r"\b(tracklist|titelliste|songliste|album)\b", query, flags=re.IGNORECASE)
+
+    if stable_release_query and re.search(r"\b(stable|current stable|latest stable|general availability|ga|released)\b", text, flags=re.IGNORECASE):
+        delta += 10
+        signals.append("primary-variant-match")
+        profiles.append("primary-variant")
+    if tracklist_query and re.search(r"\b(original|standard|studio album|album version|official track(?:list| listing))\b", text, flags=re.IGNORECASE):
+        delta += 10
+        signals.append("primary-variant-match")
+        profiles.append("primary-variant")
+    if re.search(r"\b(beta|preview|nightly|canary|dev channel|alpha|rc\b|release candidate|deluxe|bonus|anniversary|expanded|remaster|live edition|single|ep)\b", text, flags=re.IGNORECASE):
+        delta -= 18
+        warnings.append("Related variant/edition signal; verify against the requested primary/stable/original item.")
+        profiles.append("secondary-variant")
+    return delta, signals, warnings, profiles
+
+
 def _is_vendor_or_project_source(domain: str, text: str, query: str) -> bool:
     software_query = re.search(r"\b(release|changelog|version|pricing|preise|preis|available|verfügbar|docs?|api|software|package|npm|pypi)\b", query, flags=re.IGNORECASE)
     if not software_query or _is_weak_aggregator_domain(domain, text) or _is_forum_or_social_domain(domain):
@@ -2288,6 +2381,10 @@ def _source_profiles_for_result(domain: str, text: str, query: str) -> list[str]
         profiles.append("weak-paywall")
     if re.search(r"\b(top\s+\d+|best\b|coupon|deals?|buy now|vergleich der besten|testsieger)\b", text, flags=re.IGNORECASE):
         profiles.append("weak-commercial")
+    _, _, _, role_profiles = _role_disambiguation_adjustment(text, query)
+    profiles.extend(role_profiles)
+    _, _, _, variant_profiles = _variant_disambiguation_adjustment(text, query)
+    profiles.extend(variant_profiles)
     return sorted(set(profiles))
 
 
@@ -2373,6 +2470,16 @@ def _score_research_result(item: dict[str, Any], query: str, preferred_domains: 
     if re.search(r"\b(official|offiziell|official site|homepage|documentation|docs|changelog|release notes?|pricing|preise)\b", text, flags=re.IGNORECASE):
         score += 8
         signals.append("official-context")
+    role_delta, role_signals, role_warnings, _ = _role_disambiguation_adjustment(text, query)
+    if role_delta:
+        score += role_delta
+    signals.extend(role_signals)
+    warnings.extend(role_warnings)
+    variant_delta, variant_signals, variant_warnings, _ = _variant_disambiguation_adjustment(text, query)
+    if variant_delta:
+        score += variant_delta
+    signals.extend(variant_signals)
+    warnings.extend(variant_warnings)
 
     if not str(item.get("snippet") or "").strip():
         score -= 8
@@ -3120,6 +3227,18 @@ def _format_context(
             query_profiles = ", ".join(quality.get("query_profiles") or ["none"])
             source_profiles = ", ".join(quality.get("source_profiles") or ["none"])
             lines.append(f"Quellenprofile: Anfrage={query_profiles}; Treffer={source_profiles}.")
+        query_profile_set = set(quality.get("query_profiles") or [])
+        source_profile_set = set(quality.get("source_profiles") or [])
+        if "role-disambiguation" in query_profile_set or source_profile_set.intersection({"primary-role", "secondary-role"}):
+            lines.append(
+                "Rollen-/Amtsregel: Unterscheide Hauptamt/aktuelle Primärrolle von Stellvertretung, zweiter Rolle, Vize-/Deputy-/Interim-Rolle, Kandidatur oder früherem Amt. "
+                "Wenn Quellen mehrere Rollen nennen, erkläre die Rollen kurz und beantworte die Nutzerfrage mit der aktuellen Primärrolle; behandle Stellvertretungen nicht als Amtsinhaber der Hauptrolle."
+            )
+        if "variant-disambiguation" in query_profile_set or source_profile_set.intersection({"primary-variant", "secondary-variant"}):
+            lines.append(
+                "Variantenregel: Unterscheide die angefragte Haupt-/Stable-/Original-Version von Beta, Preview, Nightly, Release Candidate, Deluxe-, Bonus-, Anniversary-, Live-, Single- oder EP-Varianten. "
+                "Wenn nur Varianten belegt sind, sage das klar statt eine Hauptversion oder Standardliste zu synthetisieren."
+            )
         if quality.get("warnings"):
             lines.append(f"Bewertungshinweise: {' '.join(quality.get('warnings') or [])}")
     if current_prompt:

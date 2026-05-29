@@ -1,3 +1,13 @@
+## 2026-05-29 - Rollen- und Varianten-Disambiguierung ergänzt
+- **Typ:** fix
+- **Problem:** Brave und andere Suchprovider können offizielle Treffer zu Nebenrollen höher ranken, z. B. `Bürgermeister`/Stellvertretung statt aktueller `Oberbürgermeisterin`.
+- **Änderung:** Research Guard erkennt jetzt bei rollen- und bezeichnungsanfälligen Fragen Primärrollen, Stellvertretungen, Vize-/Deputy-/Interim-Rollen, Kandidaturen und frühere Ämter.
+- **Scoring:** Primärrollen werden geboostet, sekundäre/vertretende/ehemalige Rollen werden gewarnt und gedämpft. Das gilt neben kommunalen Ämtern auch für Unternehmens-, Sport-, Hochschul-, Kirchen-, Medien- und Organisationsrollen.
+- **Varianten:** Beta/Preview/Nightly/RC sowie Deluxe-/Bonus-/Anniversary-/Live-/EP-Varianten werden bei Versions-, Release- und Tracklist-Fragen als Varianten markiert und gegenüber Stable-/Original-/Standard-Signalen gedämpft.
+- **Kontext:** Das injizierte Research-Guard-Kontextblock enthält neue Rollen-/Amts- und Variantenregeln, damit lokale Modelle gemischte Quellen erklären statt die falsche Nebenrolle als Hauptantwort zu nehmen.
+- **Version:** Plugin version raised to `0.8.0-beta.23`.
+- **Tests:** Coverage für Bürgermeister/Oberbürgermeisterin, CEO/Deputy-CEO, Stable/Beta-Varianten und Kontextregeln ergänzt.
+
 ## 2026-05-16 - Route-Planning-Dokumentation ausgebaut
 - **Typ:** docs
 - **Änderung:** README platziert die optionale Google-Maps-Routenfunktion jetzt deutlich sichtbarer mit Überblick, Aktivierung, Answer Contract, Beispielen und Grenzen.

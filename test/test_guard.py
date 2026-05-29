@@ -509,6 +509,80 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("municipal-local", quality["query_profiles"])
         self.assertIn("municipal", quality["source_profiles"])
 
+    def test_disambiguates_primary_office_from_deputy_mayor_results(self):
+        quality = guard._score_research_results(
+            [
+                {
+                    "title": "Stadt Forchheim Bürgermeister",
+                    "url": "https://www.forchheim.de/rathaus-service/stadtverwaltung/aemteruebersicht/buergermeister",
+                    "snippet": "Im Vertretungsfall für die Oberbürgermeisterin übernimmt zweiter Bürgermeister Udo Schönfelder Amtsgeschäfte.",
+                    "age": "2026-05-01",
+                },
+                {
+                    "title": "Oberbürgermeisterin Martina Hebendanz",
+                    "url": "https://www.forchheim.de/rathaus-service/stadtverwaltung/oberbuergermeisterin",
+                    "snippet": "Oberbürgermeisterin Martina Hebendanz steht seit dem 1. Mai 2026 an der Spitze der Stadt Forchheim.",
+                    "age": "2026-05-01",
+                },
+            ],
+            "Wer ist Bürgermeister von Forchheim?",
+        )
+
+        self.assertIn("Martina Hebendanz", quality["results"][0]["title"])
+        self.assertIn("primary-role-match", quality["results"][0]["quality"]["signals"])
+        self.assertIn("secondary-role", quality["source_profiles"])
+        self.assertIn("primary-role", quality["source_profiles"])
+        self.assertIn("role-disambiguation", quality["query_profiles"])
+        deputy = next(item for item in quality["results"] if "Udo Schönfelder" in item["snippet"])
+        self.assertIn("Related secondary/former/candidate role", " ".join(deputy["quality"]["warnings"]))
+
+    def test_disambiguates_company_leadership_from_deputy_or_interim_roles(self):
+        quality = guard._score_research_results(
+            [
+                {
+                    "title": "ExampleCorp leadership",
+                    "url": "https://www.example.com/news/deputy-ceo",
+                    "snippet": "Deputy CEO John Smith will represent the CEO during travel.",
+                    "age": "2026-05-01",
+                },
+                {
+                    "title": "ExampleCorp appoints Jane Miller as CEO",
+                    "url": "https://www.example.com/news/jane-miller-ceo",
+                    "snippet": "Current CEO Jane Miller leads ExampleCorp.",
+                    "age": "2026-05-01",
+                },
+            ],
+            "Who is the CEO of ExampleCorp?",
+        )
+
+        self.assertIn("Jane Miller", quality["results"][0]["title"])
+        self.assertIn("primary-role-match", quality["results"][0]["quality"]["signals"])
+        self.assertIn("secondary-role", quality["source_profiles"])
+
+    def test_demotes_secondary_release_and_album_variants(self):
+        quality = guard._score_research_results(
+            [
+                {
+                    "title": "ExampleApp beta preview",
+                    "url": "https://example.com/beta",
+                    "snippet": "ExampleApp 4.0 beta preview nightly build.",
+                    "age": "2026-05-01",
+                },
+                {
+                    "title": "ExampleApp stable release",
+                    "url": "https://example.com/stable",
+                    "snippet": "Latest stable release ExampleApp 3.9 is now generally available.",
+                    "age": "2026-05-01",
+                },
+            ],
+            "aktuelle Version ExampleApp",
+        )
+
+        self.assertIn("stable", quality["results"][0]["title"])
+        self.assertIn("primary-variant-match", quality["results"][0]["quality"]["signals"])
+        self.assertIn("secondary-variant", quality["source_profiles"])
+        self.assertIn("variant-disambiguation", quality["query_profiles"])
+
     def test_domain_profiles_prefer_package_and_release_sources_for_software(self):
         quality = guard._score_research_results(
             [
@@ -827,6 +901,50 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Qualität:", context)
         self.assertIn("Bei Ortsfragen", context)
         self.assertIn("Aktuelle Nutzerfrage: Wo liegt Forchheim?", context)
+
+    def test_injected_context_includes_role_and_variant_discipline(self):
+        role_quality = guard._score_research_results(
+            [
+                {
+                    "title": "Oberbürgermeisterin Martina Hebendanz",
+                    "url": "https://www.forchheim.de/rathaus-service/stadtverwaltung/oberbuergermeisterin",
+                    "snippet": "Oberbürgermeisterin Martina Hebendanz steht seit dem 1. Mai 2026 an der Spitze der Stadt Forchheim.",
+                    "age": "2026-05-01",
+                },
+            ],
+            "Wer ist Bürgermeister von Forchheim?",
+        )
+        role_context = guard._format_context(
+            {"success": True, "provider": "test", "query": "Wer ist Bürgermeister von Forchheim?", "results": role_quality["results"]},
+            "factual-question",
+            "qwen",
+            role_quality,
+            "Wer ist Bürgermeister von Forchheim?",
+        )
+        self.assertIn("Rollen-/Amtsregel", role_context)
+        self.assertIn("Stellvertretung", role_context)
+        self.assertIn("aktuellen Primärrolle", role_context)
+
+        variant_quality = guard._score_research_results(
+            [
+                {
+                    "title": "ExampleApp stable release",
+                    "url": "https://example.com/stable",
+                    "snippet": "Latest stable release ExampleApp 3.9 is generally available.",
+                    "age": "2026-05-01",
+                },
+            ],
+            "aktuelle Version ExampleApp",
+        )
+        variant_context = guard._format_context(
+            {"success": True, "provider": "test", "query": "aktuelle Version ExampleApp", "results": variant_quality["results"]},
+            "factual-question",
+            "qwen",
+            variant_quality,
+            "aktuelle Version ExampleApp",
+        )
+        self.assertIn("Variantenregel", variant_context)
+        self.assertIn("Beta, Preview, Nightly", variant_context)
 
     def test_deep_fetch_triggers_for_tracklists_and_context_includes_fetched_sources(self):
         self.assertEqual(guard._should_deep_fetch("Wie ist die Tracklist von Meteora?")[0], True)

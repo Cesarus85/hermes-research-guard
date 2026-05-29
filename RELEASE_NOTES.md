@@ -1,5 +1,39 @@
 # Release Notes
 
+## v0.8.0-beta.23
+
+This beta adds role and variant disambiguation for provider-dependent search result ordering.
+
+### Fixed
+
+- Municipal office questions now distinguish primary current offices from deputy, second, substitute, candidate, interim, and former roles.
+- Generic role-sensitive questions now get similar safeguards for company leadership, sports roles, universities, churches, courts, organizations, and political offices.
+- Version, release, and tracklist questions now mark beta/preview/nightly/RC and deluxe/bonus/anniversary/live/EP variants as related variants rather than primary answers.
+- The injected context now includes role/office and variant rules so local models explain mixed evidence instead of treating a related official page as the main answer.
+
+### Example
+
+For a query such as `Wer ist Bürgermeister von Forchheim?`, an official `zweiter Bürgermeister` or `Vertretungsfall` page is no longer treated as equivalent to the current `Oberbürgermeisterin` page.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.23
+```
+
+Expected tests:
+
+```text
+Ran 77 tests
+```
+
 ## v0.8.0-beta.22
 
 This beta clarifies Google Routes travel-time wording.
