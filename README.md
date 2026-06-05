@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.26`
+**Beta release:** `v0.8.0-beta.27`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -24,6 +24,7 @@ What is considered beta-stable:
 - source scoring with official, municipal, documentation, vendor, project, package registry, release-note, pricing, standards, and reference signals
 - role and variant disambiguation for official pages that mention deputies, interim roles, candidates, former office holders, beta releases, or special editions
 - contextual factual follow-ups such as "give me concrete examples", "which alternatives are there", or "name pros and cons" that keep the previous researched subject instead of searching the follow-up wording in isolation
+- high-stakes health and food-allergen prompts that trigger research even with personal framing, while rewriting the provider query to general medical/food-safety terms
 - animal-care source discipline for rabbit/hare questions, including demotion of off-topic dog or family-dog results
 - weak-source demotion for aggregators, forums/social pages, scraper-like results, paywall/snippet-only pages, listicles, coupons, duplicate URLs, and repeated same-domain evidence
 - structured deep fetch for tracklists, tables, release notes, prices, benchmarks, population facts, and other detail-heavy prompts
@@ -41,7 +42,7 @@ Known beta limitations:
 - Research Guard improves grounding, but it cannot guarantee truth.
 - Local models can still ignore or misread injected sources.
 - Trigger detection is heuristic and will never be perfect.
-- High-stakes handling for medical, legal, financial, and safety-critical prompts is not finished.
+- High-stakes handling for legal, financial, and broad safety-critical prompts is not finished.
 - Hermes injects plugin context into the current user message, not the system prompt.
 - The no-research boundary is disabled by default because some local model UIs expose injected skip-context as visible reasoning.
 - There is no standalone runtime; Hermes is required for automatic operation.
@@ -148,7 +149,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.26
+version: 0.8.0-beta.27
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -185,7 +186,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.26
+version: 0.8.0-beta.27
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -562,6 +563,24 @@ Name concrete pros and cons.
 
 can reuse the previous researched subject across domains. For example, after a Python version question, `Welche Alternativen gibt es?` is searched with `Python` carried into the query; after a ChatGPT Team pricing question, `Nenn mir konkrete Vorteile und Nachteile` is searched with `ChatGPT Team` carried into the query. Rabbit/hare prompts also have an additional specialized rewrite and demote dog or family-dog search results as off-topic.
 
+## High-Stakes Health And Allergen Prompts
+
+Health and food-allergen prompts can contain personal framing such as family members, age, or individual conditions. Research Guard treats these as high-stakes factual prompts, but does not send the personal framing to the search provider.
+
+Example:
+
+```text
+Die Freundin meines Sohnes ist allergisch gegen Sellerie. Ist Sellerie oft in Lebensmitteln drin?
+```
+
+is searched with a sanitized query shape such as:
+
+```text
+Sellerie Celery Allergie Allergen Anaphylaxie EU Allergenkennzeichnung Lebensmittel Zutaten Pflichtkennzeichnung offizielle Informationen medizinische Quellen
+```
+
+The injected context tells Hermes to provide general, source-grounded information only, avoid diagnosis or individual medical advice, and point to medical/allergological guidance when appropriate.
+
 Manual diagnostics:
 
 ```text
@@ -625,7 +644,7 @@ Run tests:
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-Current beta test count: `80`.
+Current beta test count: `82`.
 
 ## Roadmap
 

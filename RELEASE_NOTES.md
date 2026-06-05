@@ -1,5 +1,50 @@
 # Release Notes
 
+## v0.8.0-beta.27
+
+This beta adds a first high-stakes health/food-allergen trigger for questions that contain personal framing.
+
+### Fixed
+
+- Health and food-allergen prompts now override the personal/private skip when the factual question is about allergies, allergens, food labelling, symptoms, diagnosis, treatment, or similar health-safety topics.
+- Provider queries are sanitized: personal framing such as family relationships or age is not sent to web search.
+- Sellerie/celery allergy and EU food-allergen labelling prompts rewrite to official medical and food-safety search terms.
+- Health/food-safety sources receive a dedicated source profile and scoring boost.
+- The injected context now includes a health/safety rule: answer cautiously, give general information only, avoid diagnosis or individual medical advice, and refer to medical/allergological clarification or emergency planning when appropriate.
+
+### Example
+
+This prompt now triggers Research Guard automatically:
+
+```text
+Die Freundin meines Sohnes ist allergisch gegen Sellerie. Ist Sellerie oft in Lebensmitteln drin?
+```
+
+but the search provider receives a general query shape such as:
+
+```text
+Sellerie Celery Allergie Allergen Anaphylaxie EU Allergenkennzeichnung Lebensmittel Zutaten Pflichtkennzeichnung offizielle Informationen medizinische Quellen
+```
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.27
+```
+
+Expected tests:
+
+```text
+Ran 82 tests
+```
+
 ## v0.8.0-beta.26
 
 This beta generalizes contextual factual follow-ups beyond animal questions.

@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.26"
+__version__ = "0.8.0-beta.27"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -148,6 +148,25 @@ RABBIT_CONTEXT_RE = re.compile(
 )
 PET_BREED_RE = re.compile(
     r"\b(rasse|rassen|kaninchenrassen|arten|sorten|züchtung|zuechtung|haltung|haustier|pflege)\b",
+    re.IGNORECASE,
+)
+HIGH_STAKES_HEALTH_RE = re.compile(
+    r"\b("
+    r"allerg(?:ie|ien|isch|en)?|allergen(?:e|en)?|anaphylax(?:ie|is|e|en|en)?|"
+    r"immun(?:erkrankung|erkrankungen|krankheit|krankheiten|system)?|"
+    r"sellerie|celery|erdnuss|erdnüsse|erdnuesse|nuss|nüsse|nuesse|milch|ei|eier|"
+    r"gluten|weizen|soja|senf|sesam|sulfit|sulfite|lupine|lupinen|fisch|krebstiere|"
+    r"symptom(?:e)?|diagnose|behandlung|therapie|medikament(?:e)?|impfung|notfall|"
+    r"krankheit(?:en)?|infektion(?:en)?|fieber|ausschlag|atemnot"
+    r")\b",
+    re.IGNORECASE,
+)
+FOOD_ALLERGEN_CONTEXT_RE = re.compile(
+    r"\b("
+    r"sellerie|celery|allergen(?:e|en)?|allergen[-\s]*kennzeichnung|lebensmittel|zutaten|"
+    r"erdnuss|erdnüsse|erdnuesse|nüsse|nuesse|milch|ei|eier|gluten|weizen|soja|senf|sesam|"
+    r"sulfit|sulfite|lupine|lupinen|fisch|krebstiere"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -522,6 +541,8 @@ def _rewrite_search_query(query: str) -> tuple[str, str]:
     if not cleaned:
         return "", "empty"
     subject = _extract_query_subject(cleaned)
+    if _is_high_stakes_health_query(cleaned):
+        return _rewrite_high_stakes_health_query(cleaned), "high-stakes-health"
     if _is_rabbit_care_query(cleaned):
         subject = _extract_rabbit_subject(cleaned) or subject
         child_terms = " Kinder Familie" if re.search(r"\b(kinder|kind|familie|familien)\b", lower) else ""
@@ -614,6 +635,39 @@ def _extract_rabbit_subject(text: str) -> str | None:
 def _is_rabbit_care_query(query: str) -> bool:
     text = query or ""
     return bool(RABBIT_CONTEXT_RE.search(text) and PET_BREED_RE.search(text))
+
+
+def _is_high_stakes_health_query(query: str) -> bool:
+    text = query or ""
+    if not HIGH_STAKES_HEALTH_RE.search(text):
+        return False
+    return bool(
+        FOOD_ALLERGEN_CONTEXT_RE.search(text)
+        or re.search(
+            r"\b(arzt|ärztin|aerztin|doctor|medizin|medical|gesundheit|health|"
+            r"krankheit|symptom|diagnose|behandlung|therapie|medikament|impfung|notfall)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _rewrite_high_stakes_health_query(query: str) -> str:
+    text = query or ""
+    terms: list[str] = []
+    if re.search(r"\b(sellerie|celery)\b", text, flags=re.IGNORECASE):
+        terms.extend(["Sellerie", "Celery"])
+    if re.search(r"\b(allerg(?:ie|ien|isch|en)?|allergen(?:e|en)?|anaphylax)\b", text, flags=re.IGNORECASE):
+        terms.extend(["Allergie", "Allergen", "Anaphylaxie"])
+    if re.search(r"\b(allergen[-\s]*kennzeichnung|kennzeichnung|lebensmittel|zutaten|versteckt|drin)\b", text, flags=re.IGNORECASE):
+        terms.extend(["EU", "Allergenkennzeichnung", "Lebensmittel", "Zutaten", "Pflichtkennzeichnung"])
+    if re.search(r"\b(kinder?|tochter|sohn|sie\s+ist\s+\d{1,2}|er\s+ist\s+\d{1,2})\b", text, flags=re.IGNORECASE):
+        terms.append("Kinder")
+    if not terms:
+        for match in HIGH_STAKES_HEALTH_RE.finditer(text):
+            terms.append(match.group(0))
+    terms.extend(["offizielle", "Informationen", "medizinische", "Quellen"])
+    return _dedupe_query_terms(" ".join(terms))[:240]
 
 
 def _is_contextual_fact_followup(message: str) -> bool:
@@ -749,6 +803,8 @@ def _should_research(message: str) -> tuple[bool, str]:
         return False, "too-short"
     if LOCAL_INFRA_RE.search(text):
         return False, "local-infrastructure"
+    if _is_high_stakes_health_query(text):
+        return True, "high-stakes-health"
     if LOCAL_OR_PRIVATE_RE.search(text) and not CURRENT_RE.search(text):
         return False, "looks-local-personal-writing-coding"
     if CURRENT_RE.search(text):
@@ -2280,6 +2336,8 @@ def _query_source_profiles(query: str) -> list[str]:
         profiles.append("price-product")
     if _is_rabbit_care_query(query):
         profiles.append("animal-care")
+    if _is_high_stakes_health_query(query):
+        profiles.append("high-stakes-health")
     if _is_freshness_sensitive_query(query):
         profiles.append("news-current")
     if _is_role_disambiguation_query(query):
@@ -2483,6 +2541,22 @@ def _is_pricing_source(domain: str, text: str, query: str) -> bool:
     return bool(re.search(r"\b(pricing|prices?|preise|tarife?|plans?|subscription|abo|store|shop|official|offiziell|vendor)\b", text, flags=re.IGNORECASE))
 
 
+def _is_health_or_food_safety_source(domain: str, text: str, query: str) -> bool:
+    if not _is_high_stakes_health_query(query) or _is_weak_aggregator_domain(domain, text) or _is_forum_or_social_domain(domain):
+        return False
+    trusted_domain = _domain_matches_any(domain, [
+        "europa.eu", "efsa.europa.eu", "bfr.bund.de", "bzfe.de", "bund.de",
+        "verbraucherzentrale.de", "daab.de", "nhs.uk", "who.int", "mayoclinic.org",
+    ])
+    trusted_text = bool(re.search(
+        r"\b(offiziell|official|allergen|allergie|anaphylax|lebensmittel|kennzeichnung|"
+        r"zutaten|patient(?:en)?information|medizinisch|medical|health|gesundheit)\b",
+        text,
+        flags=re.IGNORECASE,
+    ))
+    return trusted_domain or trusted_text
+
+
 def _source_profiles_for_result(domain: str, text: str, query: str) -> list[str]:
     profiles = []
     _, _, _, animal_profiles = _animal_context_adjustment(text, query)
@@ -2503,6 +2577,8 @@ def _source_profiles_for_result(domain: str, text: str, query: str) -> list[str]
         profiles.append("release-notes")
     if _is_pricing_source(domain, text, query):
         profiles.append("pricing")
+    if _is_health_or_food_safety_source(domain, text, query):
+        profiles.append("health-food-safety")
     if _is_standards_source(domain, text):
         profiles.append("standards")
     if domain.endswith("wikipedia.org") or domain.endswith("wikidata.org"):
@@ -2624,6 +2700,9 @@ def _score_research_result(item: dict[str, Any], query: str, preferred_domains: 
     if "pricing" in profiles:
         score += 14
         signals.append("pricing-source")
+    if "health-food-safety" in profiles:
+        score += 18
+        signals.append("health-food-safety-source")
     if "standards" in profiles:
         score += 18
         signals.append("standards-source")
@@ -3429,6 +3508,10 @@ def _format_context(
         if "animal-care" in query_profile_set or source_profile_set.intersection({"animal-care", "rabbit-care", "off-topic-animal"}):
             lines.append(
                 "Tierkontext-Regel: Beantworte die konkrete Tierart aus der Nutzerfrage. Wenn die Frage Kaninchen/Hasen/Schlappohren betrifft, nutze keine Hunde- oder Familienhund-Treffer und füge Kinder-/Familien-Eignung nur hinzu, wenn der Nutzer danach fragt."
+            )
+        if "high-stakes-health" in query_profile_set or "health-food-safety" in source_profile_set:
+            lines.append(
+                "Gesundheits-/Sicherheitsregel: Antworte vorsichtig und quellengebunden. Gib allgemeine Informationen, keine Diagnose und keinen individuellen medizinischen Rat. Bei Allergie-, Anaphylaxie- oder Kinderfragen auf ärztliche/allergologische Abklärung und Notfallplan verweisen, wenn passend."
             )
         if quality.get("warnings"):
             lines.append(f"Bewertungshinweise: {' '.join(quality.get('warnings') or [])}")

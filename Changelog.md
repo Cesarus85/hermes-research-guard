@@ -1,3 +1,13 @@
+## 2026-06-05 - High-Stakes-Health-Trigger für Allergene ergänzt
+- **Typ:** fix
+- **Problem:** Gesundheits-/Allergenfragen mit persönlicher Rahmung (`Freundin meines Sohnes`, Alter, Immunerkrankungen) wurden als privat/persönlich klassifiziert und nicht automatisch recherchiert.
+- **Änderung:** High-Stakes-Health-/Food-Allergen-Fragen überschreiben jetzt den Personal-Skip, wenn die eigentliche Sachfrage zu Allergien, Allergenen, Lebensmittelkennzeichnung, Symptomen, Diagnose, Behandlung oder ähnlichen Gesundheitsthemen gehört.
+- **Privacy:** Die Provider-Query wird bereinigt. Persönliche Rahmung wird nicht an die Websuche geschickt; aus dem Sellerie-Beispiel wird eine allgemeine Query zu `Sellerie`, `Allergie`, `Anaphylaxie`, `EU Allergenkennzeichnung`, `Lebensmittel`, `Zutaten` und offiziellen medizinischen Quellen.
+- **Scoring:** Gesundheits-/Lebensmittelsicherheitsquellen erhalten ein eigenes Profil und werden gegenüber unspezifischen Treffern bevorzugt.
+- **Kontext:** Der injizierte Kontext enthält eine Gesundheits-/Sicherheitsregel: allgemeine Informationen, keine Diagnose, kein individueller medizinischer Rat, bei Allergie-/Anaphylaxie-/Kinderfragen passende ärztliche/allergologische Abklärung bzw. Notfallplan erwähnen.
+- **Version:** Plugin version raised to `0.8.0-beta.27`.
+- **Tests:** Coverage für den Sellerie-Allergie-Prompt, bereinigte Query, Health/Food-Safety-Profile und Kontextregel ergänzt.
+
 ## 2026-06-05 - Kontextuelle Fakten-Follow-ups domänenübergreifend erweitert
 - **Typ:** fix
 - **Problem:** `v0.8.0-beta.25` konnte konkrete Rassen-/Beispiel-Follow-ups bereits mit History behandeln, aber der sichtbare Fix war zu stark am Tierfall aufgehängt.

@@ -247,6 +247,43 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(guard._should_research("Was ist meine Heimatstadt?"), (False, "looks-local-personal-writing-coding"))
         self.assertEqual(guard._should_research("Wie heißt meiner Meinung nach die beste Stadt?"), (False, "looks-local-personal-writing-coding"))
 
+    def test_high_stakes_health_questions_override_personal_skip_with_sanitized_query(self):
+        prompt = (
+            "Andere Sache: Die Freundin meines Sohnes (sie ist 7) hat diverse Immunerkrankungen "
+            "und ist auch allergisch gegen Sellerie. Ich habe in Allergen-Kennzeichnungen selten "
+            "Sellerie gesehen. Ist das nicht oft in vielem drin? Kannst du mir sagen was es damit auf sich hat?"
+        )
+        self.assertEqual(guard._should_research(prompt), (True, "high-stakes-health"))
+        debug = guard._query_debug(prompt)
+        self.assertEqual(debug["rewrite_strategy"], "high-stakes-health")
+        self.assertIn("Sellerie", debug["final_query"])
+        self.assertIn("Allergenkennzeichnung", debug["final_query"])
+        self.assertIn("Lebensmittel", debug["final_query"])
+        self.assertNotIn("Freundin", debug["final_query"])
+        self.assertNotIn("Sohn", debug["final_query"])
+
+    def test_health_food_safety_sources_get_profile_and_guardrail(self):
+        query = "Sellerie Celery Allergie Allergen Anaphylaxie EU Allergenkennzeichnung Lebensmittel Zutaten Pflichtkennzeichnung offizielle Informationen medizinische Quellen"
+        results = [
+            {
+                "title": "EU food allergen labelling",
+                "url": "https://food.ec.europa.eu/safety/labelling_en",
+                "snippet": "Official information about food allergen labelling and ingredients.",
+            }
+        ]
+        quality = guard._score_research_results(results, query)
+        self.assertIn("high-stakes-health", quality["query_profiles"])
+        self.assertIn("health-food-safety", quality["source_profiles"])
+        context = guard._format_context(
+            {"success": True, "provider": "duckduckgo-html", "query": query, "results": results},
+            "high-stakes-health",
+            "qwen",
+            quality,
+            "Sellerie Allergie?",
+        )
+        self.assertIn("Gesundheits-/Sicherheitsregel", context)
+        self.assertIn("keinen individuellen medizinischen Rat", context)
+
     def test_source_followup_context_uses_last_research_decision(self):
         guard.DECISIONS.clear()
         guard._record_decision(
