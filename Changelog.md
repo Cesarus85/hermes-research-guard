@@ -1,3 +1,12 @@
+## 2026-06-05 - Kontextuelle Fakten-Follow-ups domänenübergreifend erweitert
+- **Typ:** fix
+- **Problem:** `v0.8.0-beta.25` konnte konkrete Rassen-/Beispiel-Follow-ups bereits mit History behandeln, aber der sichtbare Fix war zu stark am Tierfall aufgehängt.
+- **Änderung:** Die Follow-up-Erkennung ist jetzt breiter: konkrete Beispiele, Optionen, Alternativen, Modelle, Produkte, Details, Fakten, Daten, Merkmale, Eigenschaften, Vor-/Nachteile, Risiken, Probleme, Gründe, Ursachen, Schritte, Punkte und Empfehlungen können das vorherige recherchierte Thema mitnehmen.
+- **Subject Carryover:** Zusätzliche Betreffmuster extrahieren Themen aus Version-/Release-/Preisfragen und aus Formulierungen wie `bei Python`, `über ChatGPT Team` oder `für ...`.
+- **Kontext:** Bei `contextual-factual-followup` injiziert Research Guard eine eigene Regel: Die Antwort muss auf die aktuelle Follow-up-Frage eingehen, aber strikt beim mitgetragenen Thema bleiben.
+- **Version:** Plugin version raised to `0.8.0-beta.26`.
+- **Tests:** Coverage für Python-Alternativen, ChatGPT-Team-Vor-/Nachteile und die neue Kontext-Follow-up-Regel ergänzt.
+
 ## 2026-06-05 - Kontextabhängige Rassen-/Beispiel-Follow-ups abgesichert
 - **Typ:** fix
 - **Problem:** Nach einer Frage zu `Schlappohrhasen` konnte eine Anschlussfrage wie `Gib mir konkrete Rassen` als generische Rassen-/Familientier-Frage behandelt werden. Dadurch konnten Suchtreffer zu Hunden oder Kinder-/Familienhund-Listen in den Kontext rutschen.

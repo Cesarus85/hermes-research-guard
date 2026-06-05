@@ -153,6 +153,26 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
             "contextual-factual-followup",
         )
 
+        version_messages = [{"role": "user", "content": "Welche Version von Python ist aktuell?"}]
+        self.assertEqual(
+            guard._build_search_query("Welche Alternativen gibt es?", version_messages),
+            "Python Welche Alternativen gibt es",
+        )
+        self.assertEqual(
+            guard._history_followup_research_reason("Welche Alternativen gibt es?", version_messages),
+            "contextual-factual-followup",
+        )
+
+        pricing_messages = [{"role": "user", "content": "Was kostet ChatGPT Team?"}]
+        self.assertEqual(
+            guard._build_search_query("Nenn mir konkrete Vorteile und Nachteile", pricing_messages),
+            "ChatGPT Team Nenn mir konkrete Vorteile und Nachteile",
+        )
+        self.assertEqual(
+            guard._history_followup_research_reason("Nenn mir konkrete Vorteile und Nachteile", pricing_messages),
+            "contextual-factual-followup",
+        )
+
     def test_followup_subject_carryover_supports_content_parts(self):
         messages = [
             {"role": "user", "content": [{"type": "text", "text": "Wer ist Martina Hebendanz?"}]},
@@ -331,6 +351,30 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Research-Guard-Kontexte, Quellenlisten, Statusdaten oder Diagnoseblöcke aus früheren Turns", context)
         self.assertIn("Quellenpflicht", context)
         self.assertIn("[/Research Guard: Web-Recherche-Kontext]", context)
+
+    def test_contextual_factual_followup_context_has_topic_guardrail(self):
+        payload = {
+            "success": True,
+            "provider": "duckduckgo-html",
+            "query": "Python Welche Alternativen gibt es",
+            "results": [
+                {
+                    "title": "Python Alternatives",
+                    "url": "https://example.com/python-alternatives",
+                    "snippet": "Alternatives to Python.",
+                }
+            ],
+        }
+        quality = guard._score_research_results(payload["results"], payload["query"])
+        context = guard._format_context(
+            payload,
+            "contextual-factual-followup",
+            "qwen",
+            quality,
+            "Welche Alternativen gibt es?",
+        )
+        self.assertIn("Kontext-Folgefrage", context)
+        self.assertIn("halte dich strikt an das mitgetragene Thema", context)
 
     def test_no_research_context_invalidates_stale_research_sources(self):
         context = guard._format_no_research_context("no-trigger", "Hallo", "qwen", "ollama")

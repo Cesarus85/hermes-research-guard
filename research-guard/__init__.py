@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.25"
+__version__ = "0.8.0-beta.26"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -125,14 +125,20 @@ CONTEXT_FOLLOWUP_RE = re.compile(
 )
 CONTEXTUAL_FACT_FOLLOWUP_RE = re.compile(
     r"\b(?:"
-    r"(?:gib|gebe|nenn|nenne|zeig|zeige|liste|mach)\s+(?:mir\s+)?(?:bitte\s+)?"
+    r"(?:gib|gebe|nenn|nenne|zeig|zeige|liste|erklär|erklaer|erkläre|erklaere|vergleich|vergleiche|mach)\s+(?:mir\s+)?(?:bitte\s+)?"
     r"(?:konkrete|genaue|passende|geeignete|empfohlene|weitere)?\s*"
-    r"(?:rassen|arten|sorten|beispiele|optionen|alternativen|modelle|produkte)"
+    r"(?:rassen|arten|sorten|beispiele|optionen|alternativen|modelle|produkte|"
+    r"details|fakten|daten|merkmale|eigenschaften|vor(?:-|\s+)?und(?:-|\s+)?nachteile|"
+    r"vorteile|nachteile|risiken|probleme|gründe|gruende|ursachen|schritte|punkte|empfehlungen)"
     r"|"
     r"(?:konkrete|genaue|passende|geeignete|empfohlene|weitere)\s+"
-    r"(?:rassen|arten|sorten|beispiele|optionen|alternativen|modelle|produkte)"
+    r"(?:rassen|arten|sorten|beispiele|optionen|alternativen|modelle|produkte|"
+    r"details|fakten|daten|merkmale|eigenschaften|vor(?:-|\s+)?und(?:-|\s+)?nachteile|"
+    r"vorteile|nachteile|risiken|probleme|gründe|gruende|ursachen|schritte|punkte|empfehlungen)"
     r"|"
-    r"welche\s+(?:rassen|arten|sorten|beispiele|optionen|alternativen|modelle|produkte)"
+    r"welche\s+(?:rassen|arten|sorten|beispiele|optionen|alternativen|modelle|produkte|"
+    r"details|fakten|daten|merkmale|eigenschaften|vor(?:-|\s+)?und(?:-|\s+)?nachteile|"
+    r"vorteile|nachteile|risiken|probleme|gründe|gruende|ursachen|schritte|punkte|empfehlungen)"
     r")\b",
     re.IGNORECASE,
 )
@@ -628,6 +634,8 @@ def _is_contextual_fact_followup(message: str) -> bool:
 def _extract_subject_from_text(text: str) -> str | None:
     cleaned = re.sub(r"[#/](no-)?research\b", " ", text, flags=re.IGNORECASE)
     patterns = [
+        r"\b(?:version|release|changelog|pricing|preise|preis|kosten|kostet)\s+(?:von|for|of)?\s*([A-ZÄÖÜA-Za-z0-9][\wÄÖÜäöüß.'+-]*(?:\s+[A-ZÄÖÜA-Za-z0-9][\wÄÖÜäöüß.'+-]*){0,4})",
+        r"\b(?:bei|beim|zur|zum|zu|über|ueber|für|fuer)\s+([A-ZÄÖÜA-Za-z0-9][\wÄÖÜäöüß.'+-]*(?:\s+[A-ZÄÖÜA-Za-z0-9][\wÄÖÜäöüß.'+-]*){0,4})\b",
         r"\bhaltung\s+(?:von|bei|für|fuer)\s+([A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*){0,3})",
         r"\b(?:auf|zu|über|ueber)\s+([A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*){0,3})\s+bezogen\b",
         r"\b(?:bürgermeister|oberbürgermeister|landrat|mayor)\s+(?:von|in|for)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})",
@@ -3384,6 +3392,10 @@ def _format_context(
         "Füge keine unaufgeforderten Zusatzfakten hinzu. Bei Ortsfragen wie `Wo liegt ...?` nenne keine Flüsse, Verkehrsachsen, Einwohnerzahlen oder Entfernungen, außer sie wurden gefragt und stehen ausdrücklich in den Quellen.",
         "Tracklist-Pflicht: Bei Tracklists, Songlisten oder Titellisten darfst du NICHT aus Such-Snippets, Streaming-Katalog-Mischungen oder Anniversary-/Bonus-Editionen synthetisieren. Nutze nur eine klar belegte Standard-/Original-Tracklist aus den vertieften Quellen-Auszügen. Wenn keine solche Liste enthalten ist, sage, dass die Quellen nicht reichen.",
     ]
+    if reason == "contextual-factual-followup":
+        lines.append(
+            "Kontext-Folgefrage: Diese Recherche wurde aus einer Anschlussfrage und dem vorherigen Thema gebaut. Antworte auf die aktuelle Follow-up-Frage, aber halte dich strikt an das mitgetragene Thema aus der Query; wechsle nicht auf eine andere Domäne, nur weil einzelne Suchtreffer allgemeinere Begriffe enthalten."
+        )
     if _env_bool("RESEARCH_GUARD_REQUIRE_SOURCES", True):
         lines.append("Quellenpflicht: Füge am Ende eine kurze Zeile `Quellen (Research Guard): <URL 1>, <URL 2>` mit 1-2 passenden URLs aus dieser Liste an, außer der Nutzer verlangt ausdrücklich keine Quellen.")
         lines.append("Sichtbarkeitspflicht: Wenn diese Quellen vorhanden sind, darf die Antwort nicht ohne `Quellen (Research Guard):`-Zeile enden.")

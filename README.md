@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.25`
+**Beta release:** `v0.8.0-beta.26`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -23,7 +23,7 @@ What is considered beta-stable:
 - provider-aware cache keys and cache cleanup
 - source scoring with official, municipal, documentation, vendor, project, package registry, release-note, pricing, standards, and reference signals
 - role and variant disambiguation for official pages that mention deputies, interim roles, candidates, former office holders, beta releases, or special editions
-- contextual factual follow-ups such as "give me concrete breeds/examples" that keep the previous researched subject instead of searching the follow-up wording in isolation
+- contextual factual follow-ups such as "give me concrete examples", "which alternatives are there", or "name pros and cons" that keep the previous researched subject instead of searching the follow-up wording in isolation
 - animal-care source discipline for rabbit/hare questions, including demotion of off-topic dog or family-dog results
 - weak-source demotion for aggregators, forums/social pages, scraper-like results, paywall/snippet-only pages, listicles, coupons, duplicate URLs, and repeated same-domain evidence
 - structured deep fetch for tracklists, tables, release notes, prices, benchmarks, population facts, and other detail-heavy prompts
@@ -148,7 +148,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.25
+version: 0.8.0-beta.26
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -185,7 +185,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.25
+version: 0.8.0-beta.26
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -553,12 +553,14 @@ reuse the previous Research Guard topic without searching the literal follow-up 
 Contextual factual follow-ups such as:
 
 ```text
-Give me concrete breeds.
+Give me concrete examples.
 Name a few suitable examples.
 Which variants are there?
+Which alternatives are there?
+Name concrete pros and cons.
 ```
 
-can reuse the previous researched subject. For example, after a rabbit-care question, `Gib mir konkrete Rassen` is searched as a rabbit/kaninchen breed query instead of as a generic breed query. Rabbit/hare prompts also demote dog or family-dog search results as off-topic.
+can reuse the previous researched subject across domains. For example, after a Python version question, `Welche Alternativen gibt es?` is searched with `Python` carried into the query; after a ChatGPT Team pricing question, `Nenn mir konkrete Vorteile und Nachteile` is searched with `ChatGPT Team` carried into the query. Rabbit/hare prompts also have an additional specialized rewrite and demote dog or family-dog search results as off-topic.
 
 Manual diagnostics:
 
@@ -623,7 +625,7 @@ Run tests:
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-Current beta test count: `79`.
+Current beta test count: `80`.
 
 ## Roadmap
 

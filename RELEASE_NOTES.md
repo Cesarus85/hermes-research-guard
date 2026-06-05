@@ -1,5 +1,64 @@
 # Release Notes
 
+## v0.8.0-beta.26
+
+This beta generalizes contextual factual follow-ups beyond animal questions.
+
+### Fixed
+
+- Follow-ups such as `Welche Alternativen gibt es?`, `Gib mir konkrete Beispiele`, `Nenn mir konkrete Vorteile und Nachteile`, `Erkläre Details`, or `Liste Risiken` can now reuse the previous researched subject.
+- The model context now includes a dedicated contextual-follow-up guardrail telling Hermes to answer the current follow-up while staying on the carried topic.
+- Rabbit/hare handling remains as a specialized extra layer, but the core follow-up carryover is domain-independent.
+
+### Examples
+
+After:
+
+```text
+Welche Version von Python ist aktuell?
+```
+
+the follow-up:
+
+```text
+Welche Alternativen gibt es?
+```
+
+is searched with `Python` carried into the query.
+
+After:
+
+```text
+Was kostet ChatGPT Team?
+```
+
+the follow-up:
+
+```text
+Nenn mir konkrete Vorteile und Nachteile.
+```
+
+is searched with `ChatGPT Team` carried into the query.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.26
+```
+
+Expected tests:
+
+```text
+Ran 80 tests
+```
+
 ## v0.8.0-beta.25
 
 This beta fixes context-dependent factual follow-ups that ask for concrete examples, breeds, variants, or options after a previous researched topic.
