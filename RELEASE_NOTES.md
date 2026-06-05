@@ -1,5 +1,51 @@
 # Release Notes
 
+## v0.8.0-beta.25
+
+This beta fixes context-dependent factual follow-ups that ask for concrete examples, breeds, variants, or options after a previous researched topic.
+
+### Fixed
+
+- Follow-ups such as `Gib mir konkrete Rassen` can now reuse the previous researched subject instead of being treated as an isolated generic query.
+- Rabbit/hare care questions now rewrite into rabbit-specific breed/care queries with `Kaninchen`, `Kaninchenrassen`, `Haltung`, `Gesundheit`, `Qualzucht`, and `artgerecht`.
+- Rabbit/hare prompts now demote off-topic dog or family-dog results, which prevents search providers from drifting into `Familienhunde` results when the user meant rabbits.
+- The injected context includes an animal-care rule telling the model not to use dog/family-dog results for rabbit/hare questions and not to add child/family suitability unless asked.
+
+### Example
+
+After:
+
+```text
+Was gibt es bei der Haltung von Schlappohrhasen zu beachten?
+```
+
+the follow-up:
+
+```text
+Ja, es war auf Hasen bezogen. Gib mir konkrete Rassen.
+```
+
+is now searched as a rabbit/kaninchen breed and care query, not as a generic breed or dog/family-pet query.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.25
+```
+
+Expected tests:
+
+```text
+Ran 79 tests
+```
+
 ## v0.8.0-beta.24
 
 This beta fixes the remaining Brave-provider failure mode for municipal office questions.

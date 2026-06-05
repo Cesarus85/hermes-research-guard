@@ -143,6 +143,16 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
             "Forchheim Wann wurde sie gewählt",
         )
 
+        rabbit_messages = [{"role": "user", "content": "Was gibt es bei der Haltung von Schlappohrhasen zu beachten?"}]
+        self.assertEqual(
+            guard._build_search_query("Ja, es war auf Hasen bezogen. Gib mir konkrete Rassen", rabbit_messages),
+            "Schlappohrhasen Kaninchen Kaninchenrassen Haltung Gesundheit Qualzucht artgerecht Tierschutz",
+        )
+        self.assertEqual(
+            guard._history_followup_research_reason("Gib mir konkrete Rassen", rabbit_messages),
+            "contextual-factual-followup",
+        )
+
     def test_followup_subject_carryover_supports_content_parts(self):
         messages = [
             {"role": "user", "content": [{"type": "text", "text": "Wer ist Martina Hebendanz?"}]},
@@ -166,9 +176,32 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
             "Forchheim Oberbürgermeisterin Oberbürgermeister Bürgermeisterin Bürgermeister Stadtspitze aktuelle Amtsinhaber offizielle Stadt Rathaus Verwaltung",
         )
         self.assertEqual(
+            guard._build_search_query("Welche Rassen sind bei Schlappohrhasen sinnvoll?"),
+            "Schlappohrhasen Kaninchen Kaninchenrassen Haltung Gesundheit Qualzucht artgerecht Tierschutz",
+        )
+        self.assertEqual(
             guard._query_debug("Welche Version von Python ist aktuell?")["rewrite_strategy"],
             "software-version",
         )
+
+    def test_rabbit_context_demotes_off_topic_dog_sources(self):
+        query = "Schlappohrhasen Kaninchen Kaninchenrassen Haltung Gesundheit Qualzucht artgerecht Tierschutz"
+        rabbit = {
+            "title": "Kaninchenrassen und artgerechte Haltung",
+            "url": "https://kaninchenwiese.de/rassen/",
+            "snippet": "Kaninchen, Widderkaninchen, Gesundheit und artgerechte Haltung.",
+        }
+        dog = {
+            "title": "Familienhunde für Anfänger",
+            "url": "https://example.com/familienhunde",
+            "snippet": "Labrador, Golden Retriever, Beagle und andere Hunderassen für Kinder.",
+        }
+        quality = guard._score_research_results([dog, rabbit], query)
+        self.assertIn("animal-care", quality["query_profiles"])
+        self.assertEqual(quality["results"][0]["url"], rabbit["url"])
+        dog_quality = next(item["quality"] for item in quality["results"] if item["url"] == dog["url"])
+        self.assertIn("off-topic-animal", dog_quality["profiles"])
+        self.assertIn("Off-topic dog/family-dog source for rabbit or hare query.", dog_quality["warnings"])
 
     def test_source_followups_do_not_trigger_a_fresh_web_search(self):
         self.assertEqual(guard._should_research("Wo hast du die Info her?"), (False, "source-followup"))

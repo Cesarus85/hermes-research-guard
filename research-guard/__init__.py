@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.24"
+__version__ = "0.8.0-beta.25"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -121,6 +121,27 @@ CONTEXT_FOLLOWUP_RE = re.compile(
     r"|thoughts(?:\s+(?:on\s+(?:it|that|this)))?"
     r"|your\s+opinion(?:\s+(?:on\s+(?:it|that|this)))?"
     r")\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+CONTEXTUAL_FACT_FOLLOWUP_RE = re.compile(
+    r"\b(?:"
+    r"(?:gib|gebe|nenn|nenne|zeig|zeige|liste|mach)\s+(?:mir\s+)?(?:bitte\s+)?"
+    r"(?:konkrete|genaue|passende|geeignete|empfohlene|weitere)?\s*"
+    r"(?:rassen|arten|sorten|beispiele|optionen|alternativen|modelle|produkte)"
+    r"|"
+    r"(?:konkrete|genaue|passende|geeignete|empfohlene|weitere)\s+"
+    r"(?:rassen|arten|sorten|beispiele|optionen|alternativen|modelle|produkte)"
+    r"|"
+    r"welche\s+(?:rassen|arten|sorten|beispiele|optionen|alternativen|modelle|produkte)"
+    r")\b",
+    re.IGNORECASE,
+)
+RABBIT_CONTEXT_RE = re.compile(
+    r"\b(schlappohr(?:hasen|kaninchen)?|widderkaninchen|zwergwidder|kaninchen|hasen?|häschen|haeschen)\b",
+    re.IGNORECASE,
+)
+PET_BREED_RE = re.compile(
+    r"\b(rasse|rassen|kaninchenrassen|arten|sorten|züchtung|zuechtung|haltung|haustier|pflege)\b",
     re.IGNORECASE,
 )
 
@@ -495,6 +516,12 @@ def _rewrite_search_query(query: str) -> tuple[str, str]:
     if not cleaned:
         return "", "empty"
     subject = _extract_query_subject(cleaned)
+    if _is_rabbit_care_query(cleaned):
+        subject = _extract_rabbit_subject(cleaned) or subject
+        child_terms = " Kinder Familie" if re.search(r"\b(kinder|kind|familie|familien)\b", lower) else ""
+        return _dedupe_query_terms(
+            f"{subject} Kaninchen Kaninchenrassen Haltung Gesundheit Qualzucht artgerecht Tierschutz{child_terms}"
+        ), "rabbit-care-breeds"
     if re.search(r"\b(bürgermeister|oberbürgermeister|mayor|landrat)\b", lower):
         return _dedupe_query_terms(
             f"{subject} Oberbürgermeisterin Oberbürgermeister Bürgermeisterin Bürgermeister Stadtspitze aktuelle Amtsinhaber offizielle Stadt Rathaus Verwaltung"
@@ -516,12 +543,13 @@ def _rewrite_search_query(query: str) -> tuple[str, str]:
 
 
 def _is_subject_followup(message: str) -> bool:
-    return bool(re.search(
+    pronoun_followup = bool(re.search(
         r"\b(es|sie|er|ihn|ihm|dort|da|dazu|davon|darüber|darueber|hierzu|damit|danach|später|spaeter|"
         r"it|there|this|that|about\s+(?:it|that|this))\b",
         message,
         flags=re.IGNORECASE,
     ))
+    return pronoun_followup or bool(CONTEXTUAL_FACT_FOLLOWUP_RE.search(message or ""))
 
 
 def _message_text(message: Any) -> str:
@@ -556,9 +584,52 @@ def _trim_subject(value: str) -> str | None:
     return subject if len(subject) >= 3 else None
 
 
+def _normalize_rabbit_subject(value: str) -> str | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    lower = text.lower()
+    if "schlappohr" in lower or "widder" in lower:
+        return "Schlappohrhasen Kaninchen"
+    if re.search(r"\b(hasen?|häschen|haeschen)\b", lower):
+        return "Hasen Kaninchen"
+    if "kaninchen" in lower:
+        return "Kaninchen"
+    return _trim_subject(text)
+
+
+def _extract_rabbit_subject(text: str) -> str | None:
+    match = RABBIT_CONTEXT_RE.search(text or "")
+    if match:
+        return _normalize_rabbit_subject(match.group(1))
+    return None
+
+
+def _is_rabbit_care_query(query: str) -> bool:
+    text = query or ""
+    return bool(RABBIT_CONTEXT_RE.search(text) and PET_BREED_RE.search(text))
+
+
+def _is_contextual_fact_followup(message: str) -> bool:
+    text = _clean_message_for_research(message)
+    if not text or len(text) > 220:
+        return False
+    if (
+        NO_RESEARCH_PREFIX_RE.match(text)
+        or SLASH_COMMAND_RE.match(text)
+        or _is_status_request(text)
+        or _is_source_followup(text)
+        or _is_context_followup(text)
+    ):
+        return False
+    return bool(CONTEXTUAL_FACT_FOLLOWUP_RE.search(text))
+
+
 def _extract_subject_from_text(text: str) -> str | None:
     cleaned = re.sub(r"[#/](no-)?research\b", " ", text, flags=re.IGNORECASE)
     patterns = [
+        r"\bhaltung\s+(?:von|bei|für|fuer)\s+([A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*){0,3})",
+        r"\b(?:auf|zu|über|ueber)\s+([A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*){0,3})\s+bezogen\b",
         r"\b(?:bürgermeister|oberbürgermeister|landrat|mayor)\s+(?:von|in|for)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})",
         r"\b(?:wer\s+oder\s+was|who\s+or\s+what)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,4})\s+(?:ist|war|is|was)\b",
         r"\b(?:wer|was|who|what)\s+(?:ist|war|is|was)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,4})",
@@ -567,11 +638,19 @@ def _extract_subject_from_text(text: str) -> str | None:
     for pattern in patterns:
         match = re.search(pattern, cleaned, flags=re.IGNORECASE)
         if match:
-            subject = _trim_subject(match.group(1))
+            subject = _normalize_rabbit_subject(match.group(1)) if RABBIT_CONTEXT_RE.search(match.group(1)) else _trim_subject(match.group(1))
             if subject:
                 return subject
+    rabbit_subject = _extract_rabbit_subject(cleaned)
+    if rabbit_subject:
+        return rabbit_subject
     match = re.search(r"\b([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})\b", cleaned)
-    return _trim_subject(match.group(1)) if match else None
+    if not match:
+        return None
+    subject = _trim_subject(match.group(1))
+    if subject and subject.lower() in {"wer", "was", "wann", "wo", "wie", "welche", "welcher", "welches"}:
+        return None
+    return subject
 
 
 def _extract_prior_subject(messages: list[Any] | None, prompt: str) -> str | None:
@@ -595,6 +674,12 @@ def _extract_prior_subject(messages: list[Any] | None, prompt: str) -> str | Non
         if subject:
             return subject
     return None
+
+
+def _history_followup_research_reason(message: str, messages: list[Any] | None) -> str | None:
+    if not messages or not _is_contextual_fact_followup(message):
+        return None
+    return "contextual-factual-followup" if _extract_prior_subject(messages, _clean_message_for_research(message)) else None
 
 
 def _query_debug(message: str, messages: list[Any] | None = None) -> dict[str, Any]:
@@ -2185,6 +2270,8 @@ def _query_source_profiles(query: str) -> list[str]:
         flags=re.IGNORECASE,
     ):
         profiles.append("price-product")
+    if _is_rabbit_care_query(query):
+        profiles.append("animal-care")
     if _is_freshness_sensitive_query(query):
         profiles.append("news-current")
     if _is_role_disambiguation_query(query):
@@ -2390,6 +2477,8 @@ def _is_pricing_source(domain: str, text: str, query: str) -> bool:
 
 def _source_profiles_for_result(domain: str, text: str, query: str) -> list[str]:
     profiles = []
+    _, _, _, animal_profiles = _animal_context_adjustment(text, query)
+    profiles.extend(animal_profiles)
     if _is_government_domain(domain):
         profiles.append("government")
     if _is_municipal_source(domain, text, query):
@@ -2423,6 +2512,35 @@ def _source_profiles_for_result(domain: str, text: str, query: str) -> list[str]
     _, _, _, variant_profiles = _variant_disambiguation_adjustment(text, query)
     profiles.extend(variant_profiles)
     return sorted(set(profiles))
+
+
+def _animal_context_adjustment(text: str, query: str) -> tuple[int, list[str], list[str], list[str]]:
+    if not _is_rabbit_care_query(query):
+        return 0, [], [], []
+
+    signals: list[str] = []
+    warnings: list[str] = []
+    profiles: list[str] = ["animal-care"]
+    delta = 0
+    rabbit_source = re.search(
+        r"\b(kaninchen|schlappohr|widderkaninchen|zwergwidder|hasen|hase|qualzucht|tierarzt|artgerecht)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    dog_source = re.search(
+        r"\b(hund|hunde|hunderasse|hunderassen|familienhund|familienhunde|labrador|golden retriever|beagle)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if rabbit_source:
+        delta += 16
+        signals.append("rabbit-care-match")
+        profiles.append("rabbit-care")
+    if dog_source and not rabbit_source:
+        delta -= 42
+        warnings.append("Off-topic dog/family-dog source for rabbit or hare query.")
+        profiles.append("off-topic-animal")
+    return delta, signals, warnings, profiles
 
 
 def _is_freshness_sensitive_query(query: str) -> bool:
@@ -2517,6 +2635,11 @@ def _score_research_result(item: dict[str, Any], query: str, preferred_domains: 
         score += variant_delta
     signals.extend(variant_signals)
     warnings.extend(variant_warnings)
+    animal_delta, animal_signals, animal_warnings, _ = _animal_context_adjustment(text, query)
+    if animal_delta:
+        score += animal_delta
+    signals.extend(animal_signals)
+    warnings.extend(animal_warnings)
 
     if not str(item.get("snippet") or "").strip():
         score -= 8
@@ -3291,6 +3414,10 @@ def _format_context(
                 "Variantenregel: Unterscheide die angefragte Haupt-/Stable-/Original-Version von Beta, Preview, Nightly, Release Candidate, Deluxe-, Bonus-, Anniversary-, Live-, Single- oder EP-Varianten. "
                 "Wenn nur Varianten belegt sind, sage das klar statt eine Hauptversion oder Standardliste zu synthetisieren."
             )
+        if "animal-care" in query_profile_set or source_profile_set.intersection({"animal-care", "rabbit-care", "off-topic-animal"}):
+            lines.append(
+                "Tierkontext-Regel: Beantworte die konkrete Tierart aus der Nutzerfrage. Wenn die Frage Kaninchen/Hasen/Schlappohren betrifft, nutze keine Hunde- oder Familienhund-Treffer und füge Kinder-/Familien-Eignung nur hinzu, wenn der Nutzer danach fragt."
+            )
         if quality.get("warnings"):
             lines.append(f"Bewertungshinweise: {' '.join(quality.get('warnings') or [])}")
     if current_prompt:
@@ -3686,6 +3813,9 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
         _record_decision("skipped", "plugin disabled", model=model, provider=provider, query_debug=query_debug)
         return None
     should, reason = _should_research(user_message)
+    history_followup_reason = _history_followup_research_reason(user_message, messages)
+    if not should and history_followup_reason:
+        should, reason = True, history_followup_reason
     if reason == "status-request":
         return {"context": _format_status_request_context()}
     if reason == "source-followup":

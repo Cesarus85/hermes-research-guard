@@ -1,3 +1,13 @@
+## 2026-06-05 - Kontextabhängige Rassen-/Beispiel-Follow-ups abgesichert
+- **Typ:** fix
+- **Problem:** Nach einer Frage zu `Schlappohrhasen` konnte eine Anschlussfrage wie `Gib mir konkrete Rassen` als generische Rassen-/Familientier-Frage behandelt werden. Dadurch konnten Suchtreffer zu Hunden oder Kinder-/Familienhund-Listen in den Kontext rutschen.
+- **Änderung:** Research Guard erkennt jetzt history-abhängige Fakten-Follow-ups nach konkreten Rassen, Arten, Beispielen, Optionen, Alternativen, Modellen oder Produkten.
+- **Query-Rewrite:** Hasen-/Kaninchen-/Schlappohr-Kontext wird für solche Follow-ups in eine Kaninchen-spezifische Suchquery mit `Kaninchenrassen`, `Haltung`, `Gesundheit`, `Qualzucht`, `artgerecht` und `Tierschutz` übersetzt.
+- **Scoring:** Hunde-/Familienhund-Treffer werden bei Kaninchen-/Hasenfragen als off-topic gedämpft; passende Kaninchen-/Widder-/Schlappohr-/Tierarzt-/Tierschutz-Treffer werden bevorzugt.
+- **Kontext:** Der injizierte Kontext enthält eine Tierkontext-Regel: Bei Kaninchen-/Hasenfragen keine Hundequellen verwenden und Kinder-/Familien-Eignung nur nennen, wenn der Nutzer danach fragt.
+- **Version:** Plugin version raised to `0.8.0-beta.25`.
+- **Tests:** Coverage für den Schlappohrhasen-Follow-up und Off-topic-Hundequellen ergänzt.
+
 ## 2026-05-29 - Kommunale Amtsfragen bekommen Zusatzsuche
 - **Typ:** fix
 - **Problem:** Bei Brave konnte die erste Amts-Query nur alte oder stellvertretende offizielle Seiten liefern. Dann half das Rollen-Scoring nicht, weil die aktuelle Primärrollen-Seite gar nicht im Ergebnis-Set war.

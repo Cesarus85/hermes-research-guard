@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.24`
+**Beta release:** `v0.8.0-beta.25`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -23,6 +23,8 @@ What is considered beta-stable:
 - provider-aware cache keys and cache cleanup
 - source scoring with official, municipal, documentation, vendor, project, package registry, release-note, pricing, standards, and reference signals
 - role and variant disambiguation for official pages that mention deputies, interim roles, candidates, former office holders, beta releases, or special editions
+- contextual factual follow-ups such as "give me concrete breeds/examples" that keep the previous researched subject instead of searching the follow-up wording in isolation
+- animal-care source discipline for rabbit/hare questions, including demotion of off-topic dog or family-dog results
 - weak-source demotion for aggregators, forums/social pages, scraper-like results, paywall/snippet-only pages, listicles, coupons, duplicate URLs, and repeated same-domain evidence
 - structured deep fetch for tracklists, tables, release notes, prices, benchmarks, population facts, and other detail-heavy prompts
 - optional Google Maps route context for rough route prompts, with EV charging-station and fuel-stop candidates only when requested or implied
@@ -146,7 +148,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.24
+version: 0.8.0-beta.25
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -183,7 +185,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.24
+version: 0.8.0-beta.25
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -548,6 +550,16 @@ What is your impression of my hometown?
 
 reuse the previous Research Guard topic without searching the literal follow-up phrase. The model is instructed to separate source-backed facts from its own assessment and not invent personal details about the user.
 
+Contextual factual follow-ups such as:
+
+```text
+Give me concrete breeds.
+Name a few suitable examples.
+Which variants are there?
+```
+
+can reuse the previous researched subject. For example, after a rabbit-care question, `Gib mir konkrete Rassen` is searched as a rabbit/kaninchen breed query instead of as a generic breed query. Rabbit/hare prompts also demote dog or family-dog search results as off-topic.
+
 Manual diagnostics:
 
 ```text
@@ -611,7 +623,7 @@ Run tests:
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-Current beta test count: `78`.
+Current beta test count: `79`.
 
 ## Roadmap
 
