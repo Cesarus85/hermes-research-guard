@@ -1,3 +1,13 @@
+## 2026-06-06 - Public-Factual-Topic-Shift domänenübergreifend ergänzt
+- **Typ:** fix
+- **Problem:** Der `.28`-Fix war noch zu stark Tech-/Produkt-spezifisch. Die eigentliche Fehlerklasse ist breiter: Nach einer vorherigen Recherche darf eine neue öffentliche Sachfrage nicht mit altem Kontext beantwortet werden, nur weil sie conversational oder mit persönlicher Einordnung formuliert ist.
+- **Änderung:** Neuer generischer Trigger `public-factual-topic` für eigenständige öffentliche Sachfragen mit Named-Entity- oder Domänensignal. Er greift u. a. bei Produkten, Filmen, Musik, Politik, Orten, Unternehmen, Wissenschaft, Lebensmitteln, Sport und ähnlichen öffentlichen Themen.
+- **Privacy:** Private Memory-/Identitätsfragen wie `Was ist meine Heimatstadt?` oder `Wie heißt meiner Meinung nach die beste Stadt?` bleiben vom Web ausgeschlossen.
+- **Query-Rewrite:** Persönliche Formulierungen wie `in meinen Augen`, `ich finde`, `ich glaube` oder `obwohl ich das anders sehe` werden aus der Provider-Query entfernt, wenn das Thema öffentlich ist.
+- **Kontext:** Neue Themenwechsel-Regel im injizierten Kontext: keine Quellen, Statusdaten oder Schlussfolgerungen aus vorherigen, thematisch anderen Turns verwenden.
+- **Version:** Plugin version raised to `0.8.0-beta.29`.
+- **Tests:** Coverage für Oppenheimer, Meteora/Hybrid Theory, Thermomix TM7/TM6, private Memory-Skips und die Themenwechsel-Kontextregel ergänzt.
+
 ## 2026-06-06 - Public-Tech-Produktfragen gegen stale Kontext abgesichert
 - **Typ:** fix
 - **Problem:** Nach einer kommunalen Recherche konnte eine neue DGX-Spark-/Mac-Studio-Frage fälschlich als Quellen-Follow-up behandelt werden, weil `Woher kommt die Popularität ...` auf das zu breite `woher`-Pattern fiel. Dadurch blieb der alte Bürgermeister-Kontext sichtbar und die Hardwarefrage wurde nicht frisch recherchiert.

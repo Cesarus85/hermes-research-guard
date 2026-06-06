@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.28`
+**Beta release:** `v0.8.0-beta.29`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -24,6 +24,7 @@ What is considered beta-stable:
 - source scoring with official, municipal, documentation, vendor, project, package registry, release-note, pricing, standards, and reference signals
 - role and variant disambiguation for official pages that mention deputies, interim roles, candidates, former office holders, beta releases, or special editions
 - contextual factual follow-ups such as "give me concrete examples", "which alternatives are there", or "name pros and cons" that keep the previous researched subject instead of searching the follow-up wording in isolation
+- broad public factual topic-shift detection for public questions about products, films, music, politics, places, companies, science, food, sports, and similar topics, even when phrased conversationally
 - public tech/product questions such as DGX Spark vs Mac Studio, LLM inference, memory specs, and hardware corrections that should trigger fresh research even when phrased as a follow-up
 - high-stakes health and food-allergen prompts that trigger research even with personal framing, while rewriting the provider query to general medical/food-safety terms
 - animal-care source discipline for rabbit/hare questions, including demotion of off-topic dog or family-dog results
@@ -150,7 +151,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.28
+version: 0.8.0-beta.29
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -187,7 +188,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.28
+version: 0.8.0-beta.29
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -564,6 +565,26 @@ Name concrete pros and cons.
 
 can reuse the previous researched subject across domains. For example, after a Python version question, `Welche Alternativen gibt es?` is searched with `Python` carried into the query; after a ChatGPT Team pricing question, `Nenn mir konkrete Vorteile und Nachteile` is searched with `ChatGPT Team` carried into the query. Rabbit/hare prompts also have an additional specialized rewrite and demote dog or family-dog search results as off-topic.
 
+## Public Factual Topic Shifts
+
+Research Guard also recognizes new standalone public factual questions after an unrelated researched turn. This is deliberately broader than tech: it can cover public topics such as products, films, music, politics, places, companies, science, food, sports, and similar named or domain-specific subjects.
+
+Examples:
+
+```text
+Warum ist Oppenheimer in meinen Augen so populär geworden?
+```
+
+```text
+Warum wird Meteora oft mit Hybrid Theory verglichen, obwohl ich das anders sehe?
+```
+
+```text
+Ist der Thermomix TM7 wirklich besser als der TM6 oder ist das Marketing?
+```
+
+These prompts are treated as current standalone public factual topics, not as continuations of whatever Research Guard researched in the previous turn. Personal phrasing such as `in meinen Augen` or `obwohl ich das anders sehe` is removed from the search query. Private memory questions such as `Was ist meine Heimatstadt?` or `Wie heißt meiner Meinung nach die beste Stadt?` still do not trigger web research.
+
 ## High-Stakes Health And Allergen Prompts
 
 Health and food-allergen prompts can contain personal framing such as family members, age, or individual conditions. Research Guard treats these as high-stakes factual prompts, but does not send the personal framing to the search provider.
@@ -661,7 +682,7 @@ Run tests:
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-Current beta test count: `84`.
+Current beta test count: `87`.
 
 ## Roadmap
 

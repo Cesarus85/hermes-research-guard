@@ -234,6 +234,32 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(guard._should_research(correction), (True, "public-tech-product"))
         self.assertIn("unified memory", guard._build_search_query(correction))
 
+    def test_public_factual_topic_questions_generalize_beyond_tech(self):
+        examples = [
+            (
+                "Warum ist Oppenheimer in meinen Augen so populär geworden?",
+                "Warum ist Oppenheimer so populär geworden reliable sources official facts",
+            ),
+            (
+                "Warum wird Meteora oft mit Hybrid Theory verglichen, obwohl ich das anders sehe?",
+                "Warum wird Meteora oft mit Hybrid Theory verglichen reliable sources official facts",
+            ),
+            (
+                "Ist der Thermomix TM7 wirklich besser als der TM6 oder ist das Marketing?",
+                "Ist der Thermomix TM7 wirklich besser als TM6 oder das Marketing reliable sources official facts",
+            ),
+        ]
+        for prompt, expected_query in examples:
+            with self.subTest(prompt=prompt):
+                self.assertEqual(guard._should_research(prompt), (True, "public-factual-topic"))
+                debug = guard._query_debug(prompt)
+                self.assertEqual(debug["rewrite_strategy"], "public-factual-topic")
+                self.assertEqual(debug["final_query"], expected_query)
+
+    def test_public_factual_topic_rule_does_not_override_private_memory_questions(self):
+        self.assertEqual(guard._should_research("Was ist meine Heimatstadt?"), (False, "looks-local-personal-writing-coding"))
+        self.assertEqual(guard._should_research("Wie heißt meiner Meinung nach die beste Stadt?"), (False, "looks-local-personal-writing-coding"))
+
     def test_rabbit_context_demotes_off_topic_dog_sources(self):
         query = "Schlappohrhasen Kaninchen Kaninchenrassen Haltung Gesundheit Qualzucht artgerecht Tierschutz"
         rabbit = {
@@ -444,6 +470,30 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         )
         self.assertIn("Kontext-Folgefrage", context)
         self.assertIn("halte dich strikt an das mitgetragene Thema", context)
+
+    def test_public_factual_topic_context_has_topic_shift_guardrail(self):
+        payload = {
+            "success": True,
+            "provider": "duckduckgo-html",
+            "query": "Warum ist Oppenheimer so populär geworden reliable sources official facts",
+            "results": [
+                {
+                    "title": "Oppenheimer box office analysis",
+                    "url": "https://example.com/oppenheimer",
+                    "snippet": "Public analysis of Oppenheimer popularity and box office.",
+                }
+            ],
+        }
+        quality = guard._score_research_results(payload["results"], payload["query"])
+        context = guard._format_context(
+            payload,
+            "public-factual-topic",
+            "qwen",
+            quality,
+            "Warum ist Oppenheimer so populär geworden?",
+        )
+        self.assertIn("Themenwechsel-Regel", context)
+        self.assertIn("keine Quellen, Statusdaten oder Schlussfolgerungen aus vorherigen", context)
 
     def test_no_research_context_invalidates_stale_research_sources(self):
         context = guard._format_no_research_context("no-trigger", "Hallo", "qwen", "ollama")

@@ -1,5 +1,46 @@
 # Release Notes
 
+## v0.8.0-beta.29
+
+This beta generalizes stale-context protection beyond tech/product prompts.
+
+### Fixed
+
+- New standalone public factual questions can now trigger fresh research across domains, not only technology.
+- Public topic-shift detection covers named or domain-specific questions about products, films, music, politics, places, companies, science, food, sports, and similar subjects.
+- Conversational personal phrasing such as `in meinen Augen`, `ich finde`, or `obwohl ich das anders sehe` is removed from the provider query when the topic is public.
+- Private memory questions such as `Was ist meine Heimatstadt?` and `Wie heißt meiner Meinung nach die beste Stadt?` still skip web research.
+- The injected context includes a topic-shift guardrail telling the model not to reuse Research Guard sources, status data, or conclusions from unrelated previous turns.
+
+### Examples
+
+These now trigger `public-factual-topic` rather than relying on stale previous context:
+
+```text
+Warum ist Oppenheimer in meinen Augen so populär geworden?
+Warum wird Meteora oft mit Hybrid Theory verglichen, obwohl ich das anders sehe?
+Ist der Thermomix TM7 wirklich besser als der TM6 oder ist das Marketing?
+```
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.29
+```
+
+Expected tests:
+
+```text
+Ran 87 tests
+```
+
 ## v0.8.0-beta.28
 
 This beta fixes stale-context failures for public tech/product questions after an unrelated researched turn.

@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.28"
+__version__ = "0.8.0-beta.29"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -188,6 +188,35 @@ TECH_FACT_INTENT_RE = re.compile(
     r"specs?|spezifikation(?:en)?|datenblatt|hardware|speicher|memory|ram|vram|"
     r"laufen|läuft|laeuft|passt|inferenc(?:e|ing)|inferenz|tuning|leistung|performance|"
     r"quatsch|falsch|stimmt\s+(?:das|nicht)|korrigier"
+    r")\b",
+    re.IGNORECASE,
+)
+PUBLIC_FACT_INTENT_RE = re.compile(
+    r"\b("
+    r"warum|wieso|weshalb|woher\s+kommt|wie\s+kommt|was\s+hat\s+es\s+damit\s+auf\s+sich|"
+    r"erklär(?:e)?|erklaer(?:e)?|vergleich|vergleiche|unterschied|stimmt\s+(?:das|es)|"
+    r"ist\s+das\s+(?:richtig|korrekt|wahr|falsch)|quatsch|falsch|korrigier|"
+    r"popularität|popularitaet|trend|beliebt|häufig|haeufig|oft|besser|schlechter|marketing|"
+    r"welche|welcher|welches|wer|was|wann|wo|wie"
+    r")\b",
+    re.IGNORECASE,
+)
+PUBLIC_FACT_DOMAIN_RE = re.compile(
+    r"\b("
+    r"produkt|modell|gerät|geraet|hardware|software|version|release|preis|pricing|"
+    r"album|tracklist|song|film|serie|buch|autor|künstler|kuenstler|band|spiel|game|"
+    r"stadt|land|staat|regierung|wahl|partei|bürgermeister|oberbürgermeister|minister|präsident|"
+    r"unternehmen|firma|ceo|markt|aktie|wirtschaft|studie|wissenschaft|gesetz|standard|"
+    r"sport|spieler|trainer|verein|turnier|lebensmittel|allergen|krankheit|route|auto|fahrzeug"
+    r")\b",
+    re.IGNORECASE,
+)
+PRIVATE_MEMORY_RE = re.compile(
+    r"\b("
+    r"meine\s+heimatstadt|mein\s+name|mein\s+alter|meine\s+adresse|meine\s+telefonnummer|"
+    r"meine\s+meinung|meiner\s+meinung|meiner\s+erinnerung|meine\s+erinnerung|"
+    r"was\s+weißt\s+du\s+über\s+mich|was\s+weisst\s+du\s+ueber\s+mich|"
+    r"was\s+habe\s+ich\s+gesagt|was\s+hatte\s+ich\s+gesagt"
     r")\b",
     re.IGNORECASE,
 )
@@ -590,6 +619,8 @@ def _rewrite_search_query(query: str) -> tuple[str, str]:
         return _dedupe_query_terms(f"{cleaned} official comparison documentation"), "comparison"
     if re.search(r"\b(aktuell|aktuelle|current|latest|heute|derzeit)\b", lower):
         return _dedupe_query_terms(f"{cleaned} official current"), "current-official"
+    if _is_public_factual_topic_query(cleaned) and not _is_subject_followup(cleaned):
+        return _rewrite_public_factual_topic_query(cleaned), "public-factual-topic"
     return cleaned[:240], "none"
 
 
@@ -724,6 +755,54 @@ def _rewrite_public_tech_product_query(query: str) -> str:
             terms.append(match.group(0))
     terms.extend(["official", "specs", "benchmarks", "technical analysis"])
     return _dedupe_query_terms(" ".join(terms))[:240]
+
+
+def _public_entity_candidates(text: str) -> list[str]:
+    stop = {
+        "aber", "andere", "antwort", "bitte", "das", "der", "die", "du", "frage",
+        "gib", "hallo", "ich", "ist", "kann", "kannst", "man", "mir", "nein", "ok", "sag", "was",
+        "wer", "wie", "wo", "woher", "warum", "wieso",
+    }
+    candidates: list[str] = []
+    for match in re.finditer(
+        r"\b[A-ZÄÖÜ0-9][A-Za-zÄÖÜäöüß0-9.+#'-]*(?:\s+[A-ZÄÖÜ0-9][A-Za-zÄÖÜäöüß0-9.+#'-]*){0,4}\b",
+        text or "",
+    ):
+        value = match.group(0).strip()
+        first = value.split()[0].lower().strip(".,;:!?()[]{}\"'")
+        if first in stop:
+            continue
+        if len(value) < 3:
+            continue
+        has_distinctive = (
+            len(value.split()) >= 2
+            or bool(re.search(r"[A-ZÄÖÜ]{2,}|\d|[.+#-]", value))
+            or first not in stop
+        )
+        if has_distinctive:
+            candidates.append(value)
+    return candidates
+
+
+def _is_public_factual_topic_query(query: str) -> bool:
+    text = query or ""
+    if not text or len(text) < 12:
+        return False
+    if PRIVATE_MEMORY_RE.search(text):
+        return False
+    has_intent = bool(PUBLIC_FACT_INTENT_RE.search(text) or QUESTION_RE.search(text) or re.search(r"[?？]\s*$", text))
+    if not has_intent:
+        return False
+    return bool(PUBLIC_FACT_DOMAIN_RE.search(text) or _public_entity_candidates(text))
+
+
+def _rewrite_public_factual_topic_query(query: str) -> str:
+    text = re.sub(r"^\s*(?:andere\s+sache|kurze\s+frage|mal\s+was\s+anderes)\s*[:：-]?\s*", "", query or "", flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:in\s+)?meine[nr]?\s+augen\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:meiner\s+meinung\s+nach|ich\s+finde|ich\s+glaube|ich\s+denke)\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bobwohl\s+ich\s+(?:das|es)?\s*(?:anders\s+)?(?:sehe|finde|glaube|denke)\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip(" .,:;!?")
+    return _dedupe_query_terms(f"{text} reliable sources official facts")[:240]
 
 
 def _is_contextual_fact_followup(message: str) -> bool:
@@ -863,6 +942,8 @@ def _should_research(message: str) -> tuple[bool, str]:
         return True, "high-stakes-health"
     if _is_public_tech_product_query(text):
         return True, "public-tech-product"
+    if mode != "conservative" and _is_public_factual_topic_query(text):
+        return True, "public-factual-topic"
     if LOCAL_OR_PRIVATE_RE.search(text) and not CURRENT_RE.search(text):
         return False, "looks-local-personal-writing-coding"
     if CURRENT_RE.search(text):
@@ -2398,6 +2479,8 @@ def _query_source_profiles(query: str) -> list[str]:
         profiles.append("high-stakes-health")
     if _is_public_tech_product_query(query):
         profiles.append("public-tech-product")
+    if _is_public_factual_topic_query(query):
+        profiles.append("public-factual-topic")
     if _is_freshness_sensitive_query(query):
         profiles.append("news-current")
     if _is_role_disambiguation_query(query):
@@ -3598,6 +3681,10 @@ def _format_context(
         if "public-tech-product" in query_profile_set or "public-tech-product" in source_profile_set:
             lines.append(
                 "Tech-/Produktregel: Beantworte Hardware-, Speicher-, Performance- und Popularitätsfragen nur mit Quellen, die zum aktuellen Tech-/Produkt-Thema passen. Übernimm keine Research-Guard-Quellen aus vorherigen Themen. Wenn Specs wie Unified Memory, VRAM, RAM oder Modellgröße nicht aus den Quellen hervorgehen, markiere Unsicherheit statt zu raten."
+            )
+        if "public-factual-topic" in query_profile_set:
+            lines.append(
+                "Themenwechsel-Regel: Diese Anfrage ist eine eigenständige öffentliche Sachfrage. Nutze ausschließlich den aktuellen Research-Guard-Kontext für dieses Thema; übernimm keine Quellen, Statusdaten oder Schlussfolgerungen aus vorherigen, thematisch anderen Turns."
             )
         if quality.get("warnings"):
             lines.append(f"Bewertungshinweise: {' '.join(quality.get('warnings') or [])}")
