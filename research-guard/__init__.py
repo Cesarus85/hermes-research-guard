@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.29"
+__version__ = "0.8.0-beta.30"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -218,6 +218,18 @@ PRIVATE_MEMORY_RE = re.compile(
     r"was\s+weißt\s+du\s+über\s+mich|was\s+weisst\s+du\s+ueber\s+mich|"
     r"was\s+habe\s+ich\s+gesagt|was\s+hatte\s+ich\s+gesagt"
     r")\b",
+    re.IGNORECASE,
+)
+LOCAL_MEMORY_TASK_RE = re.compile(
+    r"\b(?:memory|gedächtnis|gedaechtnis|memory[-\s]*(?:einträge|eintraege|entries)|"
+    r"erinnerung(?:en)?|notiz(?:en)?)\b[\s\S]{0,120}"
+    r"\b(?:dein(?:e|em|en|es)?|sein(?:e|em|en|es)?|hermes|agent|lokal|"
+    r"schau(?:en)?|prüf(?:e|en)?|pruef(?:e|en)?|lösch(?:en|ung|ungen)?|loesch(?:en|ung|ungen)?|"
+    r"gelöscht|geloescht|aufräum(?:en)?|aufraeum(?:en)?|bereinig(?:e|en)?|weg|entfern(?:e|en)?)\b"
+    r"|"
+    r"\b(?:dein(?:e|em|en|es)?|sein(?:e|em|en|es)?|hermes|agent|lokal)\b[\s\S]{0,80}"
+    r"\b(?:memory|gedächtnis|gedaechtnis|memory[-\s]*(?:einträge|eintraege|entries)|"
+    r"erinnerung(?:en)?|notiz(?:en)?)\b",
     re.IGNORECASE,
 )
 
@@ -788,6 +800,8 @@ def _is_public_factual_topic_query(query: str) -> bool:
     text = query or ""
     if not text or len(text) < 12:
         return False
+    if _is_local_memory_task(text):
+        return False
     if PRIVATE_MEMORY_RE.search(text):
         return False
     has_intent = bool(PUBLIC_FACT_INTENT_RE.search(text) or QUESTION_RE.search(text) or re.search(r"[?？]\s*$", text))
@@ -803,6 +817,10 @@ def _rewrite_public_factual_topic_query(query: str) -> str:
     text = re.sub(r"\bobwohl\s+ich\s+(?:das|es)?\s*(?:anders\s+)?(?:sehe|finde|glaube|denke)\b", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s+", " ", text).strip(" .,:;!?")
     return _dedupe_query_terms(f"{text} reliable sources official facts")[:240]
+
+
+def _is_local_memory_task(query: str) -> bool:
+    return bool(LOCAL_MEMORY_TASK_RE.search(query or ""))
 
 
 def _is_contextual_fact_followup(message: str) -> bool:
@@ -938,6 +956,8 @@ def _should_research(message: str) -> tuple[bool, str]:
         return False, "too-short"
     if LOCAL_INFRA_RE.search(text):
         return False, "local-infrastructure"
+    if _is_local_memory_task(text):
+        return False, "local-memory-task"
     if _is_high_stakes_health_query(text):
         return True, "high-stakes-health"
     if _is_public_tech_product_query(text):
@@ -1063,6 +1083,7 @@ def _reason_summary(decision: dict[str, Any], category: str, searched: bool) -> 
             "status-request": "Das war eine Status-/Diagnosefrage zu Research Guard.",
             "no-trigger": "Die Frage erfüllte keine Research-Guard-Auslöser.",
             "local-infrastructure": "Die Frage betraf lokale Infrastruktur oder private Systemdetails und wurde nicht ins Web geschickt.",
+            "local-memory-task": "Die Frage betraf lokale Memory-, Notiz- oder Erinnerungseinträge und wurde nicht ins Web geschickt.",
             "personal-or-memory": "Die Frage wirkte persönlich, privat oder erinnerungsbezogen und wurde nicht ins Web geschickt.",
             "code-or-file-task": "Die Frage wirkte wie eine Code-, Datei- oder Workspace-Aufgabe und wurde nicht recherchiert.",
             "slash-command": "Die Nachricht war ein Slash-Command und wurde nicht automatisch recherchiert.",

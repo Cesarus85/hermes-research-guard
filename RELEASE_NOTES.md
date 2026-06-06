@@ -1,5 +1,34 @@
 # Release Notes
 
+## v0.8.0-beta.30
+
+This beta tightens the local/private boundary after the broad public-topic trigger introduced in v0.8.0-beta.29.
+
+### Fixed
+
+- Hermes Memory cleanup and maintenance prompts no longer trigger web research.
+- Prompts such as `Schau in deinem Memory was gelöscht werden kann` now skip with `local-memory-task`.
+- The public factual topic-shift trigger remains active for real public subjects, but it no longer treats local Memory, notes, or reminder-maintenance tasks as public topics.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.30
+```
+
+Expected tests:
+
+```text
+Ran 88 tests
+```
+
 ## v0.8.0-beta.29
 
 This beta generalizes stale-context protection beyond tech/product prompts.

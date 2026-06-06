@@ -260,6 +260,20 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(guard._should_research("Was ist meine Heimatstadt?"), (False, "looks-local-personal-writing-coding"))
         self.assertEqual(guard._should_research("Wie heißt meiner Meinung nach die beste Stadt?"), (False, "looks-local-personal-writing-coding"))
 
+    def test_local_memory_cleanup_tasks_do_not_trigger_public_topic_research(self):
+        examples = [
+            "Schau in deinem Memory was deiner Meinung nach gelöscht werden kann.",
+            "Schau bitte in dein Memory und sag, was gelöscht werden kann.",
+            "Was kann aus deinem Memory gelöscht werden?",
+            "Prüfe deine Memory-Einträge und schlage Löschungen vor.",
+            "Er soll in seinem Memory schauen was seiner Meinung nach gelöscht werden kann.",
+        ]
+        for prompt in examples:
+            with self.subTest(prompt=prompt):
+                self.assertTrue(guard._is_local_memory_task(prompt))
+                self.assertEqual(guard._should_research(prompt), (False, "local-memory-task"))
+                self.assertNotEqual(guard._query_debug(prompt)["rewrite_strategy"], "public-factual-topic")
+
     def test_rabbit_context_demotes_off_topic_dog_sources(self):
         query = "Schlappohrhasen Kaninchen Kaninchenrassen Haltung Gesundheit Qualzucht artgerecht Tierschutz"
         rabbit = {

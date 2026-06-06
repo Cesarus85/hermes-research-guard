@@ -1,3 +1,12 @@
+## 2026-06-06 - Lokale Memory-Aufgaben vom Public-Topic-Trigger abgegrenzt
+- **Typ:** fix
+- **Problem:** Die breite `public-factual-topic`-Erkennung aus `.29` konnte lokale Hermes-Memory-Aufräumfragen fälschlich als öffentliche Sachfragen behandeln.
+- **Änderung:** Neuer Skip-Grund `local-memory-task` für Prompts zu lokalem Memory, Notizen, Erinnerungen und Wartungs-/Löschaufgaben.
+- **Effekt:** Fragen wie `Schau in deinem Memory was gelöscht werden kann` oder `Prüfe deine Memory-Einträge` werden nicht mehr ins Web geschickt und bekommen keinen Research-Guard-Kontext.
+- **Abgrenzung:** Öffentliche Topic-Shift-Fragen bleiben weiterhin aktiv; nur lokale Memory-/Maintenance-Aufgaben werden vor dem Public-Topic-Trigger abgefangen.
+- **Version:** Plugin version raised to `0.8.0-beta.30`.
+- **Tests:** Coverage für mehrere Memory-Cleanup-Formulierungen ergänzt; Test-Suite jetzt 88 Tests.
+
 ## 2026-06-06 - Public-Factual-Topic-Shift domänenübergreifend ergänzt
 - **Typ:** fix
 - **Problem:** Der `.28`-Fix war noch zu stark Tech-/Produkt-spezifisch. Die eigentliche Fehlerklasse ist breiter: Nach einer vorherigen Recherche darf eine neue öffentliche Sachfrage nicht mit altem Kontext beantwortet werden, nur weil sie conversational oder mit persönlicher Einordnung formuliert ist.
