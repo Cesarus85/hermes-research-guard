@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.30"
+__version__ = "0.8.0-beta.31"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -230,6 +230,25 @@ LOCAL_MEMORY_TASK_RE = re.compile(
     r"\b(?:dein(?:e|em|en|es)?|sein(?:e|em|en|es)?|hermes|agent|lokal)\b[\s\S]{0,80}"
     r"\b(?:memory|gedächtnis|gedaechtnis|memory[-\s]*(?:einträge|eintraege|entries)|"
     r"erinnerung(?:en)?|notiz(?:en)?)\b",
+    re.IGNORECASE,
+)
+CONVERSATION_CORRECTION_RE = re.compile(
+    r"\b(?:"
+    r"wie\s+kommst\s+du\s+darauf|warum\s+(?:denkst|meinst|interpretierst|verstehst)\s+du|"
+    r"wie\s+hast\s+du\s+das\s+(?:verstanden|interpretiert)|"
+    r"wenn\s+ich\s+(?:schreibe|sage|gesagt\s+habe)|ich\s+habe\s+(?:geschrieben|gesagt)|"
+    r"das\s+war\s+(?:nicht|anders)\s+gemeint|"
+    r"du\s+hast\s+(?:das|mich|es)\s+(?:falsch|verkehrt)\s+(?:verstanden|interpretiert)|"
+    r"das\s+ist\s+(?:keine|nicht\s+die)\s+(?:schlussfolgerung|folgerung|annahme)"
+    r")\b",
+    re.IGNORECASE,
+)
+RESEARCH_GUARD_META_RE = re.compile(
+    r"\b(?:research[-_\s]*guard|research_guard|guard)\b[\s\S]{0,100}"
+    r"\b(?:was\s+hat|hat\s+nichts|nichts\s+zu\s+suchen|fehl\s+am\s+platz|"
+    r"warum|wieso|unnötig|unnoetig|irrelevant|quatsch|falsch|daneben|ausgelöst|ausgeloest)\b"
+    r"|"
+    r"\b(?:was\s+hat|warum|wieso)\b[\s\S]{0,100}\b(?:research[-_\s]*guard|research_guard|guard)\b",
     re.IGNORECASE,
 )
 
@@ -802,6 +821,8 @@ def _is_public_factual_topic_query(query: str) -> bool:
         return False
     if _is_local_memory_task(text):
         return False
+    if _is_research_guard_meta_question(text) or _is_conversation_correction(text):
+        return False
     if PRIVATE_MEMORY_RE.search(text):
         return False
     has_intent = bool(PUBLIC_FACT_INTENT_RE.search(text) or QUESTION_RE.search(text) or re.search(r"[?？]\s*$", text))
@@ -821,6 +842,17 @@ def _rewrite_public_factual_topic_query(query: str) -> str:
 
 def _is_local_memory_task(query: str) -> bool:
     return bool(LOCAL_MEMORY_TASK_RE.search(query or ""))
+
+
+def _is_conversation_correction(query: str) -> bool:
+    text = query or ""
+    if not CONVERSATION_CORRECTION_RE.search(text):
+        return False
+    return bool(re.search(r"\b(du|ich|wir|unser(?:e|er|em|en|es)?|chat|gespräch|gespraech|kontext)\b", text, flags=re.IGNORECASE))
+
+
+def _is_research_guard_meta_question(query: str) -> bool:
+    return bool(RESEARCH_GUARD_META_RE.search(query or ""))
 
 
 def _is_contextual_fact_followup(message: str) -> bool:
@@ -958,6 +990,10 @@ def _should_research(message: str) -> tuple[bool, str]:
         return False, "local-infrastructure"
     if _is_local_memory_task(text):
         return False, "local-memory-task"
+    if _is_research_guard_meta_question(text):
+        return False, "research-guard-meta"
+    if _is_conversation_correction(text):
+        return False, "conversation-correction"
     if _is_high_stakes_health_query(text):
         return True, "high-stakes-health"
     if _is_public_tech_product_query(text):
@@ -1084,6 +1120,8 @@ def _reason_summary(decision: dict[str, Any], category: str, searched: bool) -> 
             "no-trigger": "Die Frage erfüllte keine Research-Guard-Auslöser.",
             "local-infrastructure": "Die Frage betraf lokale Infrastruktur oder private Systemdetails und wurde nicht ins Web geschickt.",
             "local-memory-task": "Die Frage betraf lokale Memory-, Notiz- oder Erinnerungseinträge und wurde nicht ins Web geschickt.",
+            "research-guard-meta": "Die Frage betraf Research Guard selbst und wurde nicht als Web-Sachfrage recherchiert.",
+            "conversation-correction": "Die Frage betraf eine Korrektur oder Interpretation im aktuellen Gespräch und wurde nicht ins Web geschickt.",
             "personal-or-memory": "Die Frage wirkte persönlich, privat oder erinnerungsbezogen und wurde nicht ins Web geschickt.",
             "code-or-file-task": "Die Frage wirkte wie eine Code-, Datei- oder Workspace-Aufgabe und wurde nicht recherchiert.",
             "slash-command": "Die Nachricht war ein Slash-Command und wurde nicht automatisch recherchiert.",

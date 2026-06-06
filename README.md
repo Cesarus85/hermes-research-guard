@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.30`
+**Beta release:** `v0.8.0-beta.31`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -26,6 +26,7 @@ What is considered beta-stable:
 - contextual factual follow-ups such as "give me concrete examples", "which alternatives are there", or "name pros and cons" that keep the previous researched subject instead of searching the follow-up wording in isolation
 - broad public factual topic-shift detection for public questions about products, films, music, politics, places, companies, science, food, sports, and similar topics, even when phrased conversationally
 - explicit local memory/task boundary so Hermes Memory cleanup, notes, and reminder-maintenance prompts do not trigger web research
+- explicit conversation-correction and Research-Guard-meta boundaries so chat interpretation fixes and Research Guard diagnostics do not trigger web research
 - public tech/product questions such as DGX Spark vs Mac Studio, LLM inference, memory specs, and hardware corrections that should trigger fresh research even when phrased as a follow-up
 - high-stakes health and food-allergen prompts that trigger research even with personal framing, while rewriting the provider query to general medical/food-safety terms
 - animal-care source discipline for rabbit/hare questions, including demotion of off-topic dog or family-dog results
@@ -152,7 +153,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.30
+version: 0.8.0-beta.31
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -189,7 +190,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.30
+version: 0.8.0-beta.31
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -594,6 +595,13 @@ Was kann aus deinem Memory gelöscht werden?
 Prüfe deine Memory-Einträge und schlage Löschungen vor.
 ```
 
+Conversation corrections and Research Guard meta questions also skip web research:
+
+```text
+Wie kommst du darauf, dass der Nachname Bubert ist, wenn ich schreibe Bastian = Bubert?
+Was hat Research Guard da zu suchen?
+```
+
 ## High-Stakes Health And Allergen Prompts
 
 Health and food-allergen prompts can contain personal framing such as family members, age, or individual conditions. Research Guard treats these as high-stakes factual prompts, but does not send the personal framing to the search provider.
@@ -691,7 +699,7 @@ Run tests:
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-Current beta test count: `88`.
+Current beta test count: `90`.
 
 ## Roadmap
 

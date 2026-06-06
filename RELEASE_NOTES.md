@@ -1,5 +1,35 @@
 # Release Notes
 
+## v0.8.0-beta.31
+
+This beta tightens the local chat/meta boundary for conversation corrections and Research Guard meta questions.
+
+### Fixed
+
+- Conversation-correction prompts no longer trigger public-topic web research.
+- Research Guard meta questions such as `Was hat Research Guard da zu suchen?` now skip with `research-guard-meta`.
+- Prompts such as `Wie kommst du darauf ... wenn ich schreibe ...` now skip with `conversation-correction`.
+- The diagnostic query plan no longer labels these local chat/meta questions as `public-factual-topic`.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.31
+```
+
+Expected tests:
+
+```text
+Ran 90 tests
+```
+
 ## v0.8.0-beta.30
 
 This beta tightens the local/private boundary after the broad public-topic trigger introduced in v0.8.0-beta.29.

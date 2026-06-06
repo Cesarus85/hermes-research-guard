@@ -1,3 +1,12 @@
+## 2026-06-06 - Gesprächskorrekturen und Research-Guard-Meta abgegrenzt
+- **Typ:** fix
+- **Problem:** Die breite Public-Topic-Erkennung konnte Gesprächskorrekturen (`Wie kommst du darauf ... wenn ich schreibe ...`) und Research-Guard-Meta-Fragen (`Was hat Research Guard da zu suchen?`) als Web-Sachfragen behandeln.
+- **Änderung:** Neue Skip-Gründe `conversation-correction` und `research-guard-meta`.
+- **Effekt:** Fragen zur lokalen Interpretation des laufenden Gesprächs, zu vom Nutzer geschriebenen Gleichsetzungen/Namen/Spitznamen und zu Research Guard selbst werden nicht mehr ins Web geschickt.
+- **Diagnostik:** `query_debug` markiert diese Fälle nicht mehr als `public-factual-topic`.
+- **Version:** Plugin version raised to `0.8.0-beta.31`.
+- **Tests:** Coverage für `Bastian = Bubert`, `Was hat Research Guard da zu suchen?` und die prefixed Variante `Nein Was hat Research Guard da zu suchen` ergänzt; Test-Suite jetzt 90 Tests.
+
 ## 2026-06-06 - Lokale Memory-Aufgaben vom Public-Topic-Trigger abgegrenzt
 - **Typ:** fix
 - **Problem:** Die breite `public-factual-topic`-Erkennung aus `.29` konnte lokale Hermes-Memory-Aufräumfragen fälschlich als öffentliche Sachfragen behandeln.

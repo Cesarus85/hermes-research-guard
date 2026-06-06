@@ -274,6 +274,23 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
                 self.assertEqual(guard._should_research(prompt), (False, "local-memory-task"))
                 self.assertNotEqual(guard._query_debug(prompt)["rewrite_strategy"], "public-factual-topic")
 
+    def test_conversation_corrections_do_not_trigger_public_topic_research(self):
+        prompt = "Wie kommst du darauf das der Nachname Bubert ist wenn ich schreibe Bastian = Bubert?"
+        self.assertTrue(guard._is_conversation_correction(prompt))
+        self.assertEqual(guard._should_research(prompt), (False, "conversation-correction"))
+        self.assertNotEqual(guard._query_debug(prompt)["rewrite_strategy"], "public-factual-topic")
+
+    def test_research_guard_meta_questions_do_not_trigger_public_topic_research(self):
+        examples = [
+            "Was hat Research Guard da zu suchen?",
+            "Nein Was hat Research Guard da zu suchen",
+        ]
+        for prompt in examples:
+            with self.subTest(prompt=prompt):
+                self.assertTrue(guard._is_research_guard_meta_question(prompt))
+                self.assertEqual(guard._should_research(prompt), (False, "research-guard-meta"))
+                self.assertNotEqual(guard._query_debug(prompt)["rewrite_strategy"], "public-factual-topic")
+
     def test_rabbit_context_demotes_off_topic_dog_sources(self):
         query = "Schlappohrhasen Kaninchen Kaninchenrassen Haltung Gesundheit Qualzucht artgerecht Tierschutz"
         rabbit = {
