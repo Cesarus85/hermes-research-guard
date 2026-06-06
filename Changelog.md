@@ -1,3 +1,14 @@
+## 2026-06-06 - Public-Tech-Produktfragen gegen stale Kontext abgesichert
+- **Typ:** fix
+- **Problem:** Nach einer kommunalen Recherche konnte eine neue DGX-Spark-/Mac-Studio-Frage fälschlich als Quellen-Follow-up behandelt werden, weil `Woher kommt die Popularität ...` auf das zu breite `woher`-Pattern fiel. Dadurch blieb der alte Bürgermeister-Kontext sichtbar und die Hardwarefrage wurde nicht frisch recherchiert.
+- **Änderung:** Quellen-Follow-ups erkennen `woher` nur noch, wenn es um die Herkunft der Antwort/Info/Quelle geht. `Woher kommt die Popularität ...` bleibt eine normale Sachfrage.
+- **Trigger:** Öffentliche Tech-/Produktfragen zu NVIDIA/DGX/Mac Studio/LLM-Inferenz/Tuning/CUDA/NIM/vLLM/Unified Memory/VRAM/RAM/Modellgrößen/Spezifikationen/Benchmarks lösen jetzt automatisch Research Guard aus, auch wenn sie als Follow-up oder Korrektur formuliert sind.
+- **Privacy/Personal-Skip:** Formulierungen wie `in meine Augen` blockieren solche öffentlichen Produktfragen nicht mehr als privat/persönlich.
+- **Query-Rewrite:** DGX-/Mac-/LLM-Fragen werden in kompakte Produkt-/Spec-Queries umgeschrieben, z. B. mit `NVIDIA DGX Spark`, `Mac Studio`, `LLM inference`, `unified memory`, `128 GB`, `70B model`, `official specs`, `benchmarks`.
+- **Kontext:** Der injizierte Kontext enthält eine Tech-/Produktregel: keine alten Research-Guard-Quellen aus anderen Themen verwenden und bei Specs wie Unified Memory/VRAM/RAM/Modellgröße Unsicherheit markieren, wenn Quellen fehlen.
+- **Version:** Plugin version raised to `0.8.0-beta.28`.
+- **Tests:** Coverage für DGX-Spark-Popularität, `Woher kommt` vs. Quellen-Follow-up, 128-GB-/70B-Korrektur und Spec-Kontextregel ergänzt.
+
 ## 2026-06-05 - High-Stakes-Health-Trigger für Allergene ergänzt
 - **Typ:** fix
 - **Problem:** Gesundheits-/Allergenfragen mit persönlicher Rahmung (`Freundin meines Sohnes`, Alter, Immunerkrankungen) wurden als privat/persönlich klassifiziert und nicht automatisch recherchiert.

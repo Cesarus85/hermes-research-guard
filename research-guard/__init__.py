@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.27"
+__version__ = "0.8.0-beta.28"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -80,7 +80,9 @@ RESEARCH_PREFIX_RE = re.compile(r"^\s*(?:#|/)research\b\s*", re.IGNORECASE)
 NO_RESEARCH_PREFIX_RE = re.compile(r"^\s*(?:#|/)no-research\b\s*", re.IGNORECASE)
 SLASH_COMMAND_RE = re.compile(r"^\s*/(?!research\b|no-research\b)\S+", re.IGNORECASE)
 SOURCE_FOLLOWUP_RE = re.compile(
-    r"\b(woher|wo hast du|wo habt ihr|quelle|quellen|beleg|belege|"
+    r"\b(wo\s+hast\s+du|wo\s+habt\s+ihr|woher\s+(?:hast|habt)\b|"
+    r"woher\s+kommt\s+(?:die\s+)?(?:info|information|quelle|antwort|aussage)\b|"
+    r"quelle|quellen|beleg|belege|"
     r"info her|information her|zustande|recherchiert|gesucht|"
     r"source|sources|where.*source|how.*answer)\b",
     re.IGNORECASE,
@@ -169,9 +171,29 @@ FOOD_ALLERGEN_CONTEXT_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+PUBLIC_TECH_PRODUCT_RE = re.compile(
+    r"\b("
+    r"nvidia|dgx|spark|grace[-\s]*blackwell|blackwell|rtx|gpu|cuda|tensorrt(?:-llm)?|"
+    r"nim|vllm|llm|inferenz|inferencing|inference|tuning|fine[-\s]*tuning|"
+    r"mac\s+studio|apple\s+silicon|m\d+\s*(?:max|ultra)?|mlx|metal|"
+    r"unified\s+(?:ram|memory)|unified\s+memory|vram|ram|gb|tb|tokens?/s|"
+    r"modell(?:e)?|model(?:s)?|70b|120b|context(?:fenster| window)?"
+    r")\b",
+    re.IGNORECASE,
+)
+TECH_FACT_INTENT_RE = re.compile(
+    r"\b("
+    r"warum|wieso|weshalb|woher\s+kommt|wie\s+kommt|popularität|popularitaet|beliebt|trend|"
+    r"vergleich|konkurrenz|vs\.?|versus|gegenüber|gegenueber|besser|schneller|langsamer|"
+    r"specs?|spezifikation(?:en)?|datenblatt|hardware|speicher|memory|ram|vram|"
+    r"laufen|läuft|laeuft|passt|inferenc(?:e|ing)|inferenz|tuning|leistung|performance|"
+    r"quatsch|falsch|stimmt\s+(?:das|nicht)|korrigier"
+    r")\b",
+    re.IGNORECASE,
+)
 
 QUESTION_RE = re.compile(
-    r"\b(wer|was|wann|wo|warum|wie|welche|welcher|welches|wieviel|wie viel|"
+    r"\b(wer|was|wann|wo|woher|warum|wieso|wie|welche|welcher|welches|wieviel|wie viel|"
     r"who|what|when|where|why|how|which|compare|vergleich|unterschied|"
     r"aktuell|current|latest|neueste|version|release|stimmt es|is it true|"
     r"bürgermeister|oberbürgermeister|landrat|präsident|president|minister|"
@@ -543,6 +565,8 @@ def _rewrite_search_query(query: str) -> tuple[str, str]:
     subject = _extract_query_subject(cleaned)
     if _is_high_stakes_health_query(cleaned):
         return _rewrite_high_stakes_health_query(cleaned), "high-stakes-health"
+    if _is_public_tech_product_query(cleaned):
+        return _rewrite_public_tech_product_query(cleaned), "public-tech-product"
     if _is_rabbit_care_query(cleaned):
         subject = _extract_rabbit_subject(cleaned) or subject
         child_terms = " Kinder Familie" if re.search(r"\b(kinder|kind|familie|familien)\b", lower) else ""
@@ -667,6 +691,38 @@ def _rewrite_high_stakes_health_query(query: str) -> str:
         for match in HIGH_STAKES_HEALTH_RE.finditer(text):
             terms.append(match.group(0))
     terms.extend(["offizielle", "Informationen", "medizinische", "Quellen"])
+    return _dedupe_query_terms(" ".join(terms))[:240]
+
+
+def _is_public_tech_product_query(query: str) -> bool:
+    text = query or ""
+    if not PUBLIC_TECH_PRODUCT_RE.search(text):
+        return False
+    return bool(TECH_FACT_INTENT_RE.search(text) or re.search(r"[?？]\s*$", text))
+
+
+def _rewrite_public_tech_product_query(query: str) -> str:
+    text = query or ""
+    terms: list[str] = []
+    for pattern, additions in (
+        (r"\bnvidia\b|\bdgx\s+spark\b|\bspark\b|\bgrace[-\s]*blackwell\b", ["NVIDIA", "DGX Spark", "Grace Blackwell"]),
+        (r"\bmac\s+studio\b|\bapple\s+silicon\b|\bmlx\b|\bmetal\b", ["Mac Studio", "Apple Silicon", "MLX", "Metal"]),
+        (r"\bllm\b|\binferenz\b|\binferenc(?:e|ing)\b", ["LLM", "inference", "inferencing"]),
+        (r"\btuning\b|\bfine[-\s]*tuning\b", ["fine-tuning", "tuning"]),
+        (r"\bcuda\b|\btensorrt(?:-llm)?\b|\bnim\b|\bvllm\b", ["CUDA", "TensorRT-LLM", "NIM", "vLLM"]),
+        (r"\bunified\s+(?:ram|memory)\b|\bunified\s+memory\b", ["unified memory"]),
+        (r"\b128\s*gb\b", ["128 GB"]),
+        (r"\b70b\b", ["70B model"]),
+        (r"\b120b\b", ["120B model"]),
+        (r"\bpopularität\b|\bpopularitaet\b|\bbeliebt\b|\btrend\b", ["popularity", "market adoption"]),
+        (r"\bvergleich\b|\bkonkurrenz\b|\bvs\.?\b|\bversus\b|\bgegenüber\b|\bgegenueber\b", ["comparison"]),
+    ):
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            terms.extend(additions)
+    if not terms:
+        for match in PUBLIC_TECH_PRODUCT_RE.finditer(text):
+            terms.append(match.group(0))
+    terms.extend(["official", "specs", "benchmarks", "technical analysis"])
     return _dedupe_query_terms(" ".join(terms))[:240]
 
 
@@ -805,6 +861,8 @@ def _should_research(message: str) -> tuple[bool, str]:
         return False, "local-infrastructure"
     if _is_high_stakes_health_query(text):
         return True, "high-stakes-health"
+    if _is_public_tech_product_query(text):
+        return True, "public-tech-product"
     if LOCAL_OR_PRIVATE_RE.search(text) and not CURRENT_RE.search(text):
         return False, "looks-local-personal-writing-coding"
     if CURRENT_RE.search(text):
@@ -2338,6 +2396,8 @@ def _query_source_profiles(query: str) -> list[str]:
         profiles.append("animal-care")
     if _is_high_stakes_health_query(query):
         profiles.append("high-stakes-health")
+    if _is_public_tech_product_query(query):
+        profiles.append("public-tech-product")
     if _is_freshness_sensitive_query(query):
         profiles.append("news-current")
     if _is_role_disambiguation_query(query):
@@ -2557,6 +2617,23 @@ def _is_health_or_food_safety_source(domain: str, text: str, query: str) -> bool
     return trusted_domain or trusted_text
 
 
+def _is_public_tech_product_source(domain: str, text: str, query: str) -> bool:
+    if not _is_public_tech_product_query(query) or _is_weak_aggregator_domain(domain, text) or _is_forum_or_social_domain(domain):
+        return False
+    trusted_domain = _domain_matches_any(domain, [
+        "nvidia.com", "developer.nvidia.com", "apple.com", "support.apple.com",
+        "github.com", "docs.nvidia.com",
+    ])
+    trusted_text = bool(re.search(
+        r"\b(nvidia|dgx|spark|grace[-\s]*blackwell|blackwell|mac\s+studio|apple\s+silicon|"
+        r"cuda|tensorrt|nim|vllm|llm|inference|inferencing|unified\s+memory|vram|gpu|"
+        r"specs?|benchmark|performance)\b",
+        text,
+        flags=re.IGNORECASE,
+    ))
+    return trusted_domain or trusted_text
+
+
 def _source_profiles_for_result(domain: str, text: str, query: str) -> list[str]:
     profiles = []
     _, _, _, animal_profiles = _animal_context_adjustment(text, query)
@@ -2579,6 +2656,8 @@ def _source_profiles_for_result(domain: str, text: str, query: str) -> list[str]
         profiles.append("pricing")
     if _is_health_or_food_safety_source(domain, text, query):
         profiles.append("health-food-safety")
+    if _is_public_tech_product_source(domain, text, query):
+        profiles.append("public-tech-product")
     if _is_standards_source(domain, text):
         profiles.append("standards")
     if domain.endswith("wikipedia.org") or domain.endswith("wikidata.org"):
@@ -2703,6 +2782,9 @@ def _score_research_result(item: dict[str, Any], query: str, preferred_domains: 
     if "health-food-safety" in profiles:
         score += 18
         signals.append("health-food-safety-source")
+    if "public-tech-product" in profiles:
+        score += 16
+        signals.append("public-tech-product-source")
     if "standards" in profiles:
         score += 18
         signals.append("standards-source")
@@ -3512,6 +3594,10 @@ def _format_context(
         if "high-stakes-health" in query_profile_set or "health-food-safety" in source_profile_set:
             lines.append(
                 "Gesundheits-/Sicherheitsregel: Antworte vorsichtig und quellengebunden. Gib allgemeine Informationen, keine Diagnose und keinen individuellen medizinischen Rat. Bei Allergie-, Anaphylaxie- oder Kinderfragen auf ärztliche/allergologische Abklärung und Notfallplan verweisen, wenn passend."
+            )
+        if "public-tech-product" in query_profile_set or "public-tech-product" in source_profile_set:
+            lines.append(
+                "Tech-/Produktregel: Beantworte Hardware-, Speicher-, Performance- und Popularitätsfragen nur mit Quellen, die zum aktuellen Tech-/Produkt-Thema passen. Übernimm keine Research-Guard-Quellen aus vorherigen Themen. Wenn Specs wie Unified Memory, VRAM, RAM oder Modellgröße nicht aus den Quellen hervorgehen, markiere Unsicherheit statt zu raten."
             )
         if quality.get("warnings"):
             lines.append(f"Bewertungshinweise: {' '.join(quality.get('warnings') or [])}")

@@ -1,5 +1,50 @@
 # Release Notes
 
+## v0.8.0-beta.28
+
+This beta fixes stale-context failures for public tech/product questions after an unrelated researched turn.
+
+### Fixed
+
+- `Woher kommt ...` is no longer treated as a source-follow-up unless it asks where the answer, source, or information came from.
+- Public tech/product prompts now trigger fresh research for topics such as NVIDIA DGX Spark, Mac Studio, LLM inference, tuning, CUDA, TensorRT-LLM, NIM, vLLM, Unified Memory, VRAM/RAM, model-size claims, specs, benchmarks, and hardware corrections.
+- Conversational phrasing such as `in my eyes` / `in meine Augen` no longer causes a public tech/product query to be skipped as personal context.
+- Product/spec prompts rewrite to compact search queries containing the public product and technical terms rather than stale previous-topic context.
+- The injected context now includes a tech/product guardrail: do not reuse old Research Guard sources from unrelated topics, and do not guess specs such as Unified Memory, VRAM, RAM, or model capacity when sources do not support them.
+
+### Example
+
+This now triggers fresh Research Guard context:
+
+```text
+Warum verwenden immer mehr Leute den NVIDIA DGX Spark für LLM Inferencing, obwohl er eher für Tuning gedacht ist. Woher kommt die Popularität, die in meine Augen einem Mac Studio Konkurrenz macht?
+```
+
+and rewrites to a tech/product query shape such as:
+
+```text
+NVIDIA DGX Spark Grace Blackwell Mac Studio Apple Silicon LLM inference inferencing fine-tuning tuning popularity market adoption comparison official specs benchmarks technical analysis
+```
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.28
+```
+
+Expected tests:
+
+```text
+Ran 84 tests
+```
+
 ## v0.8.0-beta.27
 
 This beta adds a first high-stakes health/food-allergen trigger for questions that contain personal framing.

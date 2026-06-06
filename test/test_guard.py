@@ -204,6 +204,36 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
             "software-version",
         )
 
+    def test_public_tech_product_questions_do_not_become_source_followups(self):
+        prompt = (
+            "Warum verwenden immer mehr Leute den NVIDIA DGX Spark für LLM Inferencing, "
+            "obwohl er eher für Tuning gedacht ist. Woher kommt die Popularität, "
+            "die in meine Augen einem Mac Studio Konkurrenz macht?"
+        )
+        self.assertFalse(guard._is_source_followup(prompt))
+        self.assertEqual(guard._should_research(prompt), (True, "public-tech-product"))
+        debug = guard._query_debug(prompt)
+        self.assertEqual(debug["rewrite_strategy"], "public-tech-product")
+        self.assertIn("DGX Spark", debug["final_query"])
+        self.assertIn("Mac Studio", debug["final_query"])
+        self.assertIn("LLM", debug["final_query"])
+        self.assertNotIn("meine", debug["final_query"].lower())
+
+    def test_public_tech_spec_corrections_trigger_research(self):
+        prompt = (
+            "Aber DGX Spark hat 128 GB, ein Mac Studio kann das auch haben - "
+            "wieso soll ein 70b Modell auf dem Studio dann laufen und auf dem Spark nicht?"
+        )
+        self.assertEqual(guard._should_research(prompt), (True, "public-tech-product"))
+        debug = guard._query_debug(prompt)
+        self.assertEqual(debug["rewrite_strategy"], "public-tech-product")
+        self.assertIn("128 GB", debug["final_query"])
+        self.assertIn("70B model", debug["final_query"])
+
+        correction = "Du erzählst Quatsch, der Spark hat auch 128 GB Unified ram!"
+        self.assertEqual(guard._should_research(correction), (True, "public-tech-product"))
+        self.assertIn("unified memory", guard._build_search_query(correction))
+
     def test_rabbit_context_demotes_off_topic_dog_sources(self):
         query = "Schlappohrhasen Kaninchen Kaninchenrassen Haltung Gesundheit Qualzucht artgerecht Tierschutz"
         rabbit = {
@@ -225,8 +255,10 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
 
     def test_source_followups_do_not_trigger_a_fresh_web_search(self):
         self.assertEqual(guard._should_research("Wo hast du die Info her?"), (False, "source-followup"))
+        self.assertEqual(guard._should_research("Woher hast du die Info her?"), (False, "source-followup"))
         self.assertEqual(guard._should_research("Was waren deine Quellen?"), (False, "source-followup"))
         self.assertEqual(guard._should_research("/research Wo hast du die Info her?"), (True, "explicit"))
+        self.assertFalse(guard._is_source_followup("Woher kommt die Popularität von DGX Spark?"))
 
     def test_research_guard_status_requests_do_not_become_source_followups(self):
         self.assertEqual(guard._should_research("Zeig mir den Research Guard Status"), (False, "status-request"))

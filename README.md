@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.27`
+**Beta release:** `v0.8.0-beta.28`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -24,6 +24,7 @@ What is considered beta-stable:
 - source scoring with official, municipal, documentation, vendor, project, package registry, release-note, pricing, standards, and reference signals
 - role and variant disambiguation for official pages that mention deputies, interim roles, candidates, former office holders, beta releases, or special editions
 - contextual factual follow-ups such as "give me concrete examples", "which alternatives are there", or "name pros and cons" that keep the previous researched subject instead of searching the follow-up wording in isolation
+- public tech/product questions such as DGX Spark vs Mac Studio, LLM inference, memory specs, and hardware corrections that should trigger fresh research even when phrased as a follow-up
 - high-stakes health and food-allergen prompts that trigger research even with personal framing, while rewriting the provider query to general medical/food-safety terms
 - animal-care source discipline for rabbit/hare questions, including demotion of off-topic dog or family-dog results
 - weak-source demotion for aggregators, forums/social pages, scraper-like results, paywall/snippet-only pages, listicles, coupons, duplicate URLs, and repeated same-domain evidence
@@ -149,7 +150,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.27
+version: 0.8.0-beta.28
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -186,7 +187,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.27
+version: 0.8.0-beta.28
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -581,6 +582,22 @@ Sellerie Celery Allergie Allergen Anaphylaxie EU Allergenkennzeichnung Lebensmit
 
 The injected context tells Hermes to provide general, source-grounded information only, avoid diagnosis or individual medical advice, and point to medical/allergological guidance when appropriate.
 
+## Public Tech/Product Prompts
+
+Research Guard treats public hardware, software, and LLM infrastructure questions as research-worthy even when they are phrased conversationally or as corrections.
+
+Examples:
+
+```text
+Warum verwenden immer mehr Leute den NVIDIA DGX Spark für LLM Inferencing, obwohl er eher für Tuning gedacht ist?
+```
+
+```text
+Aber DGX Spark hat 128 GB Unified RAM. Wieso soll ein 70B Modell auf dem Mac Studio laufen und auf dem Spark nicht?
+```
+
+These prompts are rewritten into product/spec-oriented searches containing terms such as `NVIDIA DGX Spark`, `Mac Studio`, `LLM inference`, `unified memory`, `128 GB`, `70B model`, `official specs`, and `benchmarks`. The model is told not to reuse old Research Guard sources from unrelated topics and not to guess hardware specs when sources do not support them.
+
 Manual diagnostics:
 
 ```text
@@ -644,7 +661,7 @@ Run tests:
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-Current beta test count: `82`.
+Current beta test count: `84`.
 
 ## Roadmap
 
