@@ -195,6 +195,45 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         finally:
             guard.DECISIONS.clear()
 
+    def test_anaphoric_entity_followups_use_last_decision_across_domains(self):
+        cases = [
+            (
+                "Was kostet ChatGPT Team?",
+                "Was kostet ChatGPT Team official pricing price",
+                "Welche Alternativen gibt es zu dem Produkt?",
+                "ChatGPT Team Welche Alternativen gibt es zu dem Produkt",
+            ),
+            (
+                "Welche Version von Python ist aktuell?",
+                "Python official latest version release notes",
+                "Welche Alternativen gibt es zu der Software?",
+                "Python Welche Alternativen gibt es zu der Software",
+            ),
+            (
+                "Wer ist CEO von NVIDIA?",
+                "NVIDIA CEO official current",
+                "Wie viele Mitarbeiter hat die Firma?",
+                "NVIDIA Wie viele Mitarbeiter hat die Firma",
+            ),
+        ]
+        for cleaned_prompt, query, followup, expected in cases:
+            with self.subTest(followup=followup):
+                guard.DECISIONS.clear()
+                guard._record_decision(
+                    "injected",
+                    "factual-question",
+                    query=query,
+                    query_debug={
+                        "cleaned_prompt": cleaned_prompt,
+                        "base_query": cleaned_prompt,
+                        "final_query": query,
+                    },
+                )
+
+                self.assertTrue(guard._is_subject_followup(followup))
+                self.assertEqual(guard._build_search_query(followup), expected)
+        guard.DECISIONS.clear()
+
     def test_followup_subject_carryover_supports_content_parts(self):
         messages = [
             {"role": "user", "content": [{"type": "text", "text": "Wer ist Martina Hebendanz?"}]},

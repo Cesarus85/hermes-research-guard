@@ -1,3 +1,11 @@
+## 2026-06-07 - Entity-Follow-ups domainübergreifend generalisiert
+- **Typ:** fix
+- **Problem:** Der Decision-Buffer-Fallback aus `.34` war noch zu stark am Stadt-/Einwohnerfall aufgehängt.
+- **Änderung:** Anaphorische Entity-Follow-ups wie `das Produkt`, `die Software`, `das Modell`, `die Firma`, `der Film` oder `das Album` können jetzt ebenfalls das letzte Research-Guard-Thema übernehmen, wenn Hermes keine History liefert.
+- **Subject-Extraction:** Rollenformulierungen wie `CEO von NVIDIA` extrahieren für Folgefragen die öffentliche Entität `NVIDIA`.
+- **Version:** Plugin version raised to `0.8.0-beta.35`.
+- **Tests:** Test-Suite jetzt 99 Tests.
+
 ## 2026-06-07 - Einwohner-Follow-ups tragen letztes Stadtthema weiter
 - **Typ:** fix
 - **Problem:** Nach `Wo liegt Forchheim?` konnte eine Folgefrage wie `und wieviele Einwohner hat die Stadt?` ohne Hermes-History zu generisch recherchiert werden und Quellen zu allgemeinen Bevölkerungsstatistiken oder anderen Städten liefern.

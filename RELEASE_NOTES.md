@@ -1,5 +1,34 @@
 # Release Notes
 
+## v0.8.0-beta.35
+
+This beta generalizes Research Guard's follow-up subject carryover beyond city/population prompts.
+
+### Fixed
+
+- Anaphoric entity follow-ups such as `das Produkt`, `die Software`, `das Modell`, `die Firma`, `der Film`, `das Album`, and similar wording can now reuse the last Research Guard topic when Hermes does not pass conversation history into the hook.
+- Role-style prior subjects such as `CEO von NVIDIA` now extract the public entity (`NVIDIA`) for company follow-ups.
+- The municipal population follow-up fix from the previous beta remains in place.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.35
+```
+
+Expected tests:
+
+```text
+Ran 99 tests
+```
+
 ## v0.8.0-beta.34
 
 This beta improves municipal factual follow-ups such as asking for a city's population after asking where the city is located.

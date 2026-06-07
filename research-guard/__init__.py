@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.34"
+__version__ = "0.8.0-beta.35"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -141,6 +141,20 @@ CONTEXTUAL_FACT_FOLLOWUP_RE = re.compile(
     r"welche\s+(?:rassen|arten|sorten|beispiele|optionen|alternativen|modelle|produkte|"
     r"details|fakten|daten|merkmale|eigenschaften|vor(?:-|\s+)?und(?:-|\s+)?nachteile|"
     r"vorteile|nachteile|risiken|probleme|gründe|gruende|ursachen|schritte|punkte|empfehlungen)"
+    r")\b",
+    re.IGNORECASE,
+)
+ANAPHORIC_ENTITY_FOLLOWUP_RE = re.compile(
+    r"\b(?:"
+    r"(?:das|der|die|dem|den|dieses|dieser|diese|jenes|jener|jene)\s+"
+    r"(?:produkt|modell|gerät|geraet|tool|werkzeug|app|software|version|release|"
+    r"film|serie|album|song|buch|spiel|game|stadt|ort|gemeinde|land|staat|"
+    r"unternehmen|firma|anbieter|dienst|service|plattform|person|politiker|partei|"
+    r"gesetz|regelung|tarif|preis|quelle|thema)"
+    r"|"
+    r"the\s+(?:product|model|device|tool|app|software|version|release|movie|film|"
+    r"series|album|song|book|game|city|town|country|company|provider|service|"
+    r"platform|person|politician|party|law|rule|price|source|topic)"
     r")\b",
     re.IGNORECASE,
 )
@@ -704,7 +718,11 @@ def _is_subject_followup(message: str) -> bool:
         message,
         flags=re.IGNORECASE,
     ))
-    return pronoun_followup or bool(CONTEXTUAL_FACT_FOLLOWUP_RE.search(message or ""))
+    return (
+        pronoun_followup
+        or bool(ANAPHORIC_ENTITY_FOLLOWUP_RE.search(message or ""))
+        or bool(CONTEXTUAL_FACT_FOLLOWUP_RE.search(message or ""))
+    )
 
 
 def _message_text(message: Any) -> str:
@@ -993,6 +1011,7 @@ def _extract_subject_from_text(text: str) -> str | None:
         r"\bhaltung\s+(?:von|bei|für|fuer)\s+([A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*){0,3})",
         r"\b(?:auf|zu|über|ueber)\s+([A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜa-zäöüß][\wÄÖÜäöüß.'-]*){0,3})\s+bezogen\b",
         r"\b(?:bürgermeister|oberbürgermeister|landrat|mayor)\s+(?:von|in|for)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})",
+        r"\b(?:ceo|chef|geschäftsführer|geschaeftsfuehrer|präsident|praesident|president|gründer|gruender|founder|owner|inhaber|cheftrainer|trainer)\s+(?:von|of|bei|at|for)\s+([A-ZÄÖÜ0-9][\wÄÖÜäöüß.'+-]*(?:\s+[A-ZÄÖÜ0-9][\wÄÖÜäöüß.'+-]*){0,4})",
         r"\b(?:wer\s+oder\s+was|who\s+or\s+what)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,4})\s+(?:ist|war|is|was)\b",
         r"\b(?:wer|was|who|what)\s+(?:ist|war|is|was)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,4})",
         r"\b(?:wo liegt|wo ist|wo befindet sich|where is)\s+([A-ZÄÖÜ][\wÄÖÜäöüß.'-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß.'-]*){0,3})",
