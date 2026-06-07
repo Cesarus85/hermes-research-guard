@@ -223,7 +223,7 @@ Goal: make future changes safe.
 - [ ] PORT Add fuller tests for freshness/staleness scoring.
 - [ ] PORT Add tests for provider normalization.
 - [ ] ADAPT Add integration smoke test for Hermes `pre_llm_call` context injection if a stable test harness exists.
-- [ ] ADAPT Add GitHub Actions lint/test workflow once the project has a test runner.
+- [x] ADAPT Add GitHub Actions lint/test workflow once the project has a test runner.
 
 ## v0.13 - Route Planning Beta Hardening
 
@@ -248,8 +248,8 @@ Goal: make optional Google Maps route context useful for Hermes users without pr
 - [x] Distinguish Google `duration` from `staticDuration` without calling static duration `typisch`.
 - [x] Add strict guardrails against invented stop order, segment distances, SoC curves, charge times, live availability, prices, tolls, vignette costs, amenities, and route geography.
 - [x] Document the route answer contract and example prompts in the README.
-- [ ] ADAPT Replace ambiguous candidate wording such as `stärker belegter Kandidat`, because German readers can interpret `belegt` as occupied. Prefer clearer wording such as `besser dokumentierter Kandidat` or `Kandidat mit bestätigten Connector-Daten`.
-- [ ] ADAPT Tighten coarse-location wording so Hermes avoids unsupported phrases such as `liegt günstig auf der Route`; prefer `liegt an einem groben Suchpunkt entlang der Route` or `wurde an einem Route-Sample gefunden`.
+- [x] ADAPT Replace ambiguous candidate wording such as `stärker belegter Kandidat`, because German readers can interpret `belegt` as occupied. Prefer clearer wording such as `besser dokumentierter Kandidat` or `Kandidat mit bestätigten Connector-Daten`.
+- [x] ADAPT Tighten coarse-location wording so Hermes avoids unsupported phrases such as `liegt günstig auf der Route`; prefer `liegt an einem groben Suchpunkt entlang der Route` or `wurde an einem Route-Sample gefunden`.
 - [ ] CHECK Evaluate whether Places candidate sampling should expose route detour distance when Google APIs can provide it cheaply and within policy.
 - [ ] CHECK Evaluate a future optional optimizer mode for simple stop sequencing only if it can calculate segment distances, minimum SoC assumptions, and vehicle limits transparently.
 

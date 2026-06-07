@@ -708,8 +708,6 @@ The direct feature alignment with the current OpenClaw Research Guard baseline i
 - high-stakes mode for medical, legal, financial, and safety-related prompts
 - AI-content-farm and shallow-content detection
 - richer contradiction hints when top sources disagree
-- route-planning language polish: replace ambiguous `stärker belegter Kandidat` with clearer wording such as `besser dokumentierter Kandidat`
-- route-planning location wording polish: avoid unsupported phrases such as `liegt günstig auf der Route`; prefer `liegt an einem groben Suchpunkt entlang der Route`
 - more provider normalization tests
 - optional Hermes slash command such as `/rg-status`
 - integration smoke tests once Hermes exposes a stable test harness

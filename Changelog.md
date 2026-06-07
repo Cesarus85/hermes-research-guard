@@ -1,3 +1,10 @@
+## 2026-06-07 - Route-Wording und CI gehärtet
+- **Typ:** hardening
+- **Problem:** Die Route-Guardrails enthielten mit `stärker belegter Kandidat` eine missverständliche Formulierung; außerdem gab es noch keinen GitHub-Actions-Testlauf für die vorhandene dependency-freie Testsuite.
+- **Änderung:** Route-Kontext und Route-Follow-up verwenden jetzt `Kandidat mit bestätigten Connector-Daten`; Lade- und Tankkandidaten werden als Treffer an groben Route-Samples beschrieben, nicht als garantiert direkt auf der Route liegende Stopps.
+- **CI:** Neuer GitHub-Actions-Workflow führt `python -m unittest discover -s test -p 'test_*.py'` bei Pushes und Pull Requests aus.
+- **Tests:** Bestehende Route-Tests prüfen die neue Kandidaten- und Route-Sample-Sprache.
+
 ## 2026-06-06 - Gesprächskorrekturen und Research-Guard-Meta abgegrenzt
 - **Typ:** fix
 - **Problem:** Die breite Public-Topic-Erkennung konnte Gesprächskorrekturen (`Wie kommst du darauf ... wenn ich schreibe ...`) und Research-Guard-Meta-Fragen (`Was hat Research Guard da zu suchen?`) als Web-Sachfragen behandeln.
