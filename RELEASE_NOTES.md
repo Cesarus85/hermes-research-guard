@@ -1,5 +1,37 @@
 # Release Notes
 
+## v0.8.0-beta.33
+
+This beta adds high-stakes legal, financial, and broad safety handling on top of the existing health/food-allergen mode.
+
+### Improved
+
+- Legal, financial, and broad safety prompts can now trigger Research Guard even when framed personally.
+- Provider queries are sanitized toward general official-source terms rather than personal details.
+- Source scoring adds `legal-official`, `financial-official`, and `safety-official` profiles.
+- High-stakes prompts now require at least medium confidence before context injection.
+- Weak or insufficient official source support is surfaced as a high-stakes warning.
+- Injected context adds guardrails against individual legal, tax, investment, insurance, or risky emergency/self-repair advice.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.33
+```
+
+Expected tests:
+
+```text
+Ran 96 tests
+```
+
 ## v0.8.0-beta.32
 
 This beta hardens provider result normalization and freshness/staleness scoring coverage.

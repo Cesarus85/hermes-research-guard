@@ -202,9 +202,9 @@ Goal: make source ranking sensitive to topic risk.
 - [x] Municipal/local-facts mode: prefer city, municipality, county, government, and official administration pages.
 - [x] Price/product mode: prefer official pricing, vendor pages, stores, and recent pages.
 - [x] News/current mode: prefer fresh and dated sources.
-- [ ] PORT Medical/legal/financial mode: require stronger confidence and explicit uncertainty.
-- [ ] PORT Add high-stakes warning when sources are weak or insufficient.
-- [ ] PORT Document that Research Guard improves grounding but cannot guarantee truth.
+- [x] PORT Medical/legal/financial mode: require stronger confidence and explicit uncertainty.
+- [x] PORT Add high-stakes warning when sources are weak or insufficient.
+- [x] PORT Document that Research Guard improves grounding but cannot guarantee truth.
 
 ## v0.12 - Tests And Release Quality
 

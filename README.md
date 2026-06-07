@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.32`
+**Beta release:** `v0.8.0-beta.33`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -28,7 +28,7 @@ What is considered beta-stable:
 - explicit local memory/task boundary so Hermes Memory cleanup, notes, and reminder-maintenance prompts do not trigger web research
 - explicit conversation-correction and Research-Guard-meta boundaries so chat interpretation fixes and Research Guard diagnostics do not trigger web research
 - public tech/product questions such as DGX Spark vs Mac Studio, LLM inference, memory specs, and hardware corrections that should trigger fresh research even when phrased as a follow-up
-- high-stakes health and food-allergen prompts that trigger research even with personal framing, while rewriting the provider query to general medical/food-safety terms
+- high-stakes health, legal, financial, and safety prompts that trigger research even with personal framing, while rewriting the provider query to general official-source terms
 - animal-care source discipline for rabbit/hare questions, including demotion of off-topic dog or family-dog results
 - weak-source demotion for aggregators, forums/social pages, scraper-like results, paywall/snippet-only pages, listicles, coupons, duplicate URLs, and repeated same-domain evidence
 - structured deep fetch for tracklists, tables, release notes, prices, benchmarks, population facts, and other detail-heavy prompts
@@ -46,7 +46,7 @@ Known beta limitations:
 - Research Guard improves grounding, but it cannot guarantee truth.
 - Local models can still ignore or misread injected sources.
 - Trigger detection is heuristic and will never be perfect.
-- High-stakes handling for legal, financial, and broad safety-critical prompts is not finished.
+- High-stakes handling is heuristic and provides general source-grounded information only; it is not medical, legal, financial, tax, investment, insurance, or emergency-service advice.
 - Hermes injects plugin context into the current user message, not the system prompt.
 - The no-research boundary is disabled by default because some local model UIs expose injected skip-context as visible reasoning.
 - There is no standalone runtime; Hermes is required for automatic operation.
@@ -153,7 +153,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.32
+version: 0.8.0-beta.33
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -190,7 +190,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.32
+version: 0.8.0-beta.33
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -602,9 +602,9 @@ Wie kommst du darauf, dass der Nachname Bubert ist, wenn ich schreibe Bastian = 
 Was hat Research Guard da zu suchen?
 ```
 
-## High-Stakes Health And Allergen Prompts
+## High-Stakes Prompts
 
-Health and food-allergen prompts can contain personal framing such as family members, age, or individual conditions. Research Guard treats these as high-stakes factual prompts, but does not send the personal framing to the search provider.
+Health, food-allergen, legal, financial, and safety prompts can contain personal framing such as family members, ages, landlords, inherited money, kitchens, or other local details. Research Guard treats these as high-stakes factual prompts, but does not send the personal framing to the search provider.
 
 Example:
 
@@ -619,6 +619,8 @@ Sellerie Celery Allergie Allergen Anaphylaxie EU Allergenkennzeichnung Lebensmit
 ```
 
 The injected context tells Hermes to provide general, source-grounded information only, avoid diagnosis or individual medical advice, and point to medical/allergological guidance when appropriate.
+
+Legal, financial, and safety prompts use the same pattern: Research Guard rewrites toward official law, regulator, consumer-protection, tax, safety, recall, or emergency-information sources; requires at least medium confidence for injection; and adds guardrails against individual legal advice, tax/investment/insurance advice, and risky repair or emergency self-help instructions.
 
 ## Public Tech/Product Prompts
 
@@ -699,13 +701,12 @@ Run tests:
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-Current beta test count: `93`.
+Current beta test count: `96`.
 
 ## Roadmap
 
 The direct feature alignment with the current OpenClaw Research Guard baseline is essentially complete. Remaining work is mostly beta hardening:
 
-- high-stakes mode for medical, legal, financial, and safety-related prompts
 - AI-content-farm and shallow-content detection
 - richer contradiction hints when top sources disagree
 - optional Hermes slash command such as `/rg-status`

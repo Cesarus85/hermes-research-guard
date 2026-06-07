@@ -1,3 +1,12 @@
+## 2026-06-07 - High-Stakes Legal/Financial/Safety ergänzt
+- **Typ:** feature
+- **Problem:** Bisher gab es nur High-Stakes-Health-/Food-Allergen-Erkennung; Legal-, Financial- und breite Safety-Fragen waren in README/Roadmap noch offen.
+- **Änderung:** Neue Trigger `high-stakes-legal`, `high-stakes-financial` und `high-stakes-safety` mit bereinigten Provider-Queries.
+- **Scoring:** Offizielle Rechts-, Finanz-/Regulierungs- und Safety-Quellen erhalten eigene Profile und Signale; schwache High-Stakes-Quellen erzeugen eine Warnung.
+- **Antwortdisziplin:** High-Stakes-Kontexte verlangen mindestens Medium-Confidence und enthalten Guardrails gegen individuelle Rechts-, Steuer-, Anlage-, Versicherungs- und riskante Notfall-/Reparaturanweisungen.
+- **Version:** Plugin version raised to `0.8.0-beta.33`.
+- **Tests:** Test-Suite jetzt 96 Tests.
+
 ## 2026-06-07 - Provider-Normalisierung und Freshness-Tests erweitert
 - **Typ:** hardening
 - **Problem:** Einige realistische Provider-Payloads mit verschachtelten Ergebniscontainern oder alternativen Feldnamen wie `body`, `excerpt`, `sourceUrl` oder `publishedAt` waren nicht explizit abgesichert.

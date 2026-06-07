@@ -373,6 +373,136 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("Gesundheits-/Sicherheitsregel", context)
         self.assertIn("keinen individuellen medizinischen Rat", context)
 
+    def test_high_stakes_legal_financial_and_safety_prompts_trigger_with_sanitized_queries(self):
+        legal_prompt = "Mein Vermieter Herr Beispiel will mir fristlos kündigen. Darf er das?"
+        financial_prompt = "Ich habe 20000 Euro geerbt. Muss ich darauf Steuern zahlen oder in einen ETF investieren?"
+        safety_prompt = "Bei mir riecht es nach Gas in der Küche. Was soll ich tun?"
+
+        self.assertEqual(guard._should_research(legal_prompt), (True, "high-stakes-legal"))
+        legal_debug = guard._query_debug(legal_prompt)
+        self.assertEqual(legal_debug["rewrite_strategy"], "high-stakes-legal")
+        self.assertIn("Kündigung", legal_debug["final_query"])
+        self.assertIn("Gesetzestext", legal_debug["final_query"])
+        self.assertNotIn("Herr Beispiel", legal_debug["final_query"])
+        self.assertNotIn("Mein Vermieter", legal_debug["final_query"])
+
+        self.assertEqual(guard._should_research(financial_prompt), (True, "high-stakes-financial"))
+        financial_debug = guard._query_debug(financial_prompt)
+        self.assertEqual(financial_debug["rewrite_strategy"], "high-stakes-financial")
+        self.assertIn("Steuer", financial_debug["final_query"])
+        self.assertIn("Geldanlage", financial_debug["final_query"])
+        self.assertIn("keine Anlageberatung", financial_debug["final_query"])
+        self.assertNotIn("20000", financial_debug["final_query"])
+
+        self.assertEqual(guard._should_research(safety_prompt), (True, "high-stakes-safety"))
+        safety_debug = guard._query_debug(safety_prompt)
+        self.assertEqual(safety_debug["rewrite_strategy"], "high-stakes-safety")
+        self.assertIn("Gasleck", safety_debug["final_query"])
+        self.assertIn("Notfall", safety_debug["final_query"])
+        self.assertNotIn("Küche", safety_debug["final_query"])
+        self.assertNotEqual(
+            guard._should_research("Which gas station is cheapest near Berlin?"),
+            (True, "high-stakes-safety"),
+        )
+
+    def test_high_stakes_sources_get_profiles_and_guardrails(self):
+        cases = [
+            (
+                "Kündigung Frist gesetzliche Regelung offizielle Informationen Gesetzestext Behörde Verbraucherzentrale",
+                "high-stakes-legal",
+                {
+                    "title": "Gesetze im Internet Mietrecht",
+                    "url": "https://www.gesetze-im-internet.de/bgb/",
+                    "snippet": "Offizieller Gesetzestext zu Kündigung und Frist im Mietrecht.",
+                },
+                "legal-official",
+                "legal-official-source",
+                "Rechtsregel",
+                "keine individuelle Rechtsberatung",
+            ),
+            (
+                "Steuer Finanzamt ELSTER offizielle Steuerinformationen Behörde Verbraucherschutz keine Anlageberatung",
+                "high-stakes-financial",
+                {
+                    "title": "ELSTER Steuerinformationen",
+                    "url": "https://www.elster.de/eportal/start",
+                    "snippet": "Offizielle Steuerinformationen vom Finanzamt.",
+                },
+                "financial-official",
+                "financial-official-source",
+                "Finanzregel",
+                "keine individuelle Steuer-, Anlage-, Kredit- oder Versicherungsberatung",
+            ),
+            (
+                "Gasleck Notfall Sicherheitshinweise Behörde offizielle Sicherheitshinweise",
+                "high-stakes-safety",
+                {
+                    "title": "Official gas safety warning",
+                    "url": "https://www.cpsc.gov/safety-education",
+                    "snippet": "Official safety and emergency information for gas leaks and carbon monoxide.",
+                },
+                "safety-official",
+                "safety-official-source",
+                "Sicherheitsregel",
+                "keine riskanten Reparatur",
+            ),
+        ]
+        for query, reason, result, source_profile, signal, guardrail, phrase in cases:
+            with self.subTest(reason=reason):
+                quality = guard._score_research_results([result], query)
+                self.assertIn(reason, quality["query_profiles"])
+                self.assertIn(source_profile, quality["source_profiles"])
+                self.assertIn(signal, quality["results"][0]["quality"]["signals"])
+                context = guard._format_context(
+                    {"success": True, "provider": "duckduckgo-html", "query": query, "results": quality["results"]},
+                    reason,
+                    "qwen",
+                    quality,
+                    query,
+                )
+                self.assertIn(guardrail, context)
+                self.assertIn(phrase, context)
+
+    def test_high_stakes_weak_sources_warn_and_require_medium_confidence_for_injection(self):
+        query = "Steuer Finanzamt offizielle Steuerinformationen Behörde"
+        weak_quality = guard._score_research_results(
+            [
+                {
+                    "title": "Reddit tax guess",
+                    "url": "https://www.reddit.com/r/tax/comments/example",
+                    "snippet": "A user guesses what might happen with taxes.",
+                }
+            ],
+            query,
+        )
+
+        self.assertIn("high-stakes-financial", weak_quality["query_profiles"])
+        self.assertIn("High-stakes query has weak or insufficient official source support.", weak_quality["warnings"])
+
+        guard.DECISIONS.clear()
+        original_search = guard._search
+        try:
+            guard._search = lambda *_args, **_kwargs: {
+                "success": True,
+                "provider": "test",
+                "query": query,
+                "results": weak_quality["results"],
+                "cached": False,
+                "provider_chain": ["test"],
+            }
+            result = guard.pre_llm_research_guard(
+                "s1",
+                "Muss ich geerbtes Geld versteuern?",
+                "qwen3",
+                "ollama",
+            )
+        finally:
+            guard._search = original_search
+
+        self.assertIsNone(result)
+        self.assertEqual(guard.DECISIONS[-1]["action"], "failed")
+        self.assertIn("below configured minimum medium", guard.DECISIONS[-1]["reason"])
+
     def test_source_followup_context_uses_last_research_decision(self):
         guard.DECISIONS.clear()
         guard._record_decision(

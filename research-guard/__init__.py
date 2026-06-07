@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.32"
+__version__ = "0.8.0-beta.33"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -169,6 +169,43 @@ FOOD_ALLERGEN_CONTEXT_RE = re.compile(
     r"erdnuss|erdnüsse|erdnuesse|nüsse|nuesse|milch|ei|eier|gluten|weizen|soja|senf|sesam|"
     r"sulfit|sulfite|lupine|lupinen|fisch|krebstiere"
     r")\b",
+    re.IGNORECASE,
+)
+HIGH_STAKES_LEGAL_RE = re.compile(
+    r"\b("
+    r"mietrecht|miete|vermieter|mieter|kündigung|kuendigung|frist(?:en)?|vertrag|arbeitsrecht|"
+    r"arbeitgeber|arbeitnehmer|abmahnung|klage|verklagen|anwalt|rechtsanwalt|gericht|"
+    r"bußgeld|bussgeld|strafbar|haftung|widerspruch|datenschutz|dsgvo|gdpr|"
+    r"gesetz|paragraph|paragraf|rechtlich|legal|law|lawsuit|tenant|landlord|employment\s+law"
+    r")\b",
+    re.IGNORECASE,
+)
+HIGH_STAKES_FINANCIAL_RE = re.compile(
+    r"\b("
+    r"steuer(?:n|erklärung|erklaerung)?|finanzamt|elster|lohnsteuer|einkommensteuer|umsatzsteuer|"
+    r"rente|altersvorsorge|kredit|darlehen|hypothek|baufinanzierung|versicherung|"
+    r"anlageberatung|anlage|invest(?:ment|ieren)?|etf|aktie(?:n)?|anleihe(?:n)?|"
+    r"zinsen|insolvenz|schufa|depot|broker|tax|irs|pension|retirement|loan|mortgage|"
+    r"insurance|bankruptcy|financial\s+advice"
+    r")\b",
+    re.IGNORECASE,
+)
+HIGH_STAKES_SAFETY_RE = re.compile(
+    r"\b("
+    r"brand|feuer|gas(?!\s*station)|gasleck|gasgeruch|kohlenmonoxid|co[-\s]?vergiftung|stromschlag|"
+    r"elektrik|kurzschluss|chemikalie|giftig|vergiftung|asbest|schimmel|"
+    r"rückruf|rueckruf|produktsicherheit|lebensmittelsicherheit|salmonellen|"
+    r"explosion|notfall|evakuierung|safety|recall|product\s+safety|food\s+safety|"
+    r"carbon\s+monoxide|electric\s+shock|chemical|poison(?:ing)?|emergency"
+    r")\b",
+    re.IGNORECASE,
+)
+HIGH_STAKES_FACT_INTENT_RE = re.compile(
+    r"\b("
+    r"was|wie|wann|wo|warum|wieso|welche|welcher|welches|darf|muss|kann|gilt|"
+    r"brauche|bekomme|kündigen|kuendigen|zahlen|absetzen|melden|tun|prüfen|pruefen|"
+    r"what|how|when|where|why|which|can|must|should|need|legal|allowed|deduct|report"
+    r")\b|[?？]\s*$",
     re.IGNORECASE,
 )
 PUBLIC_TECH_PRODUCT_RE = re.compile(
@@ -625,6 +662,10 @@ def _rewrite_search_query(query: str) -> tuple[str, str]:
     subject = _extract_query_subject(cleaned)
     if _is_high_stakes_health_query(cleaned):
         return _rewrite_high_stakes_health_query(cleaned), "high-stakes-health"
+    high_stakes_kind = _high_stakes_non_health_kind(cleaned)
+    high_stakes_reason = _high_stakes_reason(high_stakes_kind)
+    if high_stakes_reason:
+        return _rewrite_high_stakes_non_health_query(cleaned), high_stakes_reason
     if _is_public_tech_product_query(cleaned):
         return _rewrite_public_tech_product_query(cleaned), "public-tech-product"
     if _is_rabbit_care_query(cleaned):
@@ -753,6 +794,79 @@ def _rewrite_high_stakes_health_query(query: str) -> str:
         for match in HIGH_STAKES_HEALTH_RE.finditer(text):
             terms.append(match.group(0))
     terms.extend(["offizielle", "Informationen", "medizinische", "Quellen"])
+    return _dedupe_query_terms(" ".join(terms))[:240]
+
+
+def _high_stakes_non_health_kind(query: str, require_intent: bool = True) -> str | None:
+    text = query or ""
+    if require_intent and not HIGH_STAKES_FACT_INTENT_RE.search(text):
+        return None
+    if HIGH_STAKES_LEGAL_RE.search(text):
+        return "legal"
+    if HIGH_STAKES_FINANCIAL_RE.search(text):
+        return "financial"
+    if HIGH_STAKES_SAFETY_RE.search(text):
+        return "safety"
+    return None
+
+
+def _high_stakes_reason(kind: str | None) -> str | None:
+    if kind in {"legal", "financial", "safety"}:
+        return f"high-stakes-{kind}"
+    return None
+
+
+def _is_high_stakes_non_health_query(query: str) -> bool:
+    return _high_stakes_non_health_kind(query) is not None
+
+
+def _rewrite_high_stakes_non_health_query(query: str) -> str:
+    text = query or ""
+    kind = _high_stakes_non_health_kind(text)
+    terms: list[str] = []
+    patterns: list[tuple[str, list[str]]] = []
+    suffix: list[str] = []
+    if kind == "legal":
+        patterns = [
+            (r"\b(mietrecht|miete|vermieter|mieter|tenant|landlord)\b", ["Mietrecht", "Miete", "Mieter", "Vermieter"]),
+            (r"\b(kündigung|kuendigung|kündigen|kuendigen|frist(?:en)?|termination|notice)\b", ["Kündigung", "Frist", "gesetzliche Regelung"]),
+            (r"\b(arbeitsrecht|arbeitgeber|arbeitnehmer|employment\s+law)\b", ["Arbeitsrecht", "Arbeitgeber", "Arbeitnehmer"]),
+            (r"\b(datenschutz|dsgvo|gdpr)\b", ["DSGVO", "Datenschutz", "Aufsichtsbehörde"]),
+            (r"\b(abmahnung|klage|gericht|anwalt|rechtsanwalt|lawsuit)\b", ["Rechtsweg", "Abmahnung", "Klage"]),
+        ]
+        suffix = ["offizielle", "Informationen", "Gesetzestext", "Behörde", "Verbraucherzentrale"]
+    elif kind == "financial":
+        patterns = [
+            (r"\b(steuer(?:n|erklärung|erklaerung)?|finanzamt|elster|tax|irs)\b", ["Steuer", "Finanzamt", "ELSTER", "offizielle Steuerinformationen"]),
+            (r"\b(rente|altersvorsorge|pension|retirement)\b", ["Rente", "Altersvorsorge", "offizielle Informationen"]),
+            (r"\b(kredit|darlehen|hypothek|baufinanzierung|loan|mortgage)\b", ["Kredit", "Darlehen", "Verbraucherinformation"]),
+            (r"\b(versicherung|insurance)\b", ["Versicherung", "Verbraucherinformation", "Aufsicht"]),
+            (r"\b(anlage|invest(?:ment|ieren)?|etf|aktie(?:n)?|anleihe(?:n)?|broker)\b", ["Geldanlage", "ETF", "Aktien", "Anlegerschutz"]),
+            (r"\b(insolvenz|schufa|bankruptcy)\b", ["Insolvenz", "SCHUFA", "Verbraucherinformation"]),
+        ]
+        suffix = ["offizielle", "Informationen", "Behörde", "Verbraucherschutz", "keine Anlageberatung"]
+    elif kind == "safety":
+        patterns = [
+            (r"\b(brand|feuer|gas(?!\s*station)|gasleck|gasgeruch|explosion|emergency)\b", ["Brand", "Gasleck", "Notfall", "Sicherheitsbehörde"]),
+            (r"\b(kohlenmonoxid|carbon\s+monoxide|co[-\s]?vergiftung)\b", ["Kohlenmonoxid", "CO-Vergiftung", "Notfall", "offizielle Sicherheitshinweise"]),
+            (r"\b(stromschlag|elektrik|kurzschluss|electric\s+shock)\b", ["Stromschlag", "Elektrik", "Sicherheitshinweise"]),
+            (r"\b(chemikalie|giftig|vergiftung|chemical|poison(?:ing)?)\b", ["Chemikalien", "Vergiftung", "Sicherheitsdaten", "Notfall"]),
+            (r"\b(rückruf|rueckruf|produktsicherheit|recall|product\s+safety)\b", ["Rückruf", "Produktsicherheit", "offizielle Warnung"]),
+            (r"\b(lebensmittelsicherheit|salmonellen|food\s+safety)\b", ["Lebensmittelsicherheit", "Salmonellen", "offizielle Warnung"]),
+        ]
+        suffix = ["offizielle", "Sicherheitshinweise", "Behörde", "Notfallhinweise"]
+    for pattern, additions in patterns:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            terms.extend(additions)
+    if not terms and kind:
+        regex = {
+            "legal": HIGH_STAKES_LEGAL_RE,
+            "financial": HIGH_STAKES_FINANCIAL_RE,
+            "safety": HIGH_STAKES_SAFETY_RE,
+        }[kind]
+        for match in regex.finditer(text):
+            terms.append(match.group(0))
+    terms.extend(suffix)
     return _dedupe_query_terms(" ".join(terms))[:240]
 
 
@@ -996,6 +1110,9 @@ def _should_research(message: str) -> tuple[bool, str]:
         return False, "conversation-correction"
     if _is_high_stakes_health_query(text):
         return True, "high-stakes-health"
+    high_stakes_reason = _high_stakes_reason(_high_stakes_non_health_kind(text))
+    if high_stakes_reason:
+        return True, high_stakes_reason
     if _is_public_tech_product_query(text):
         return True, "public-tech-product"
     if mode != "conservative" and _is_public_factual_topic_query(text):
@@ -2536,6 +2653,9 @@ def _query_source_profiles(query: str) -> list[str]:
         profiles.append("animal-care")
     if _is_high_stakes_health_query(query):
         profiles.append("high-stakes-health")
+    high_stakes_kind = _high_stakes_non_health_kind(query, require_intent=False)
+    if high_stakes_kind:
+        profiles.append(f"high-stakes-{high_stakes_kind}")
     if _is_public_tech_product_query(query):
         profiles.append("public-tech-product")
     if _is_public_factual_topic_query(query):
@@ -2759,6 +2879,60 @@ def _is_health_or_food_safety_source(domain: str, text: str, query: str) -> bool
     return trusted_domain or trusted_text
 
 
+def _is_legal_source(domain: str, text: str, query: str) -> bool:
+    if _high_stakes_non_health_kind(query, require_intent=False) != "legal" or _is_weak_aggregator_domain(domain, text) or _is_forum_or_social_domain(domain):
+        return False
+    trusted_domain = _domain_matches_any(domain, [
+        "gesetze-im-internet.de", "bundesjustiz.de", "bmj.de", "bfdi.bund.de",
+        "datenschutzkonferenz-online.de", "europa.eu", "eur-lex.europa.eu",
+        "verbraucherzentrale.de", "arbeitsagentur.de",
+    ]) or _is_government_domain(domain)
+    trusted_text = bool(re.search(
+        r"\b(offiziell|official|gesetz|gesetzestext|verordnung|paragraph|paragraf|"
+        r"behörde|behoerde|ministerium|datenschutz|dsgvo|gdpr|verbraucherzentrale|"
+        r"court|law|regulation|legal information)\b",
+        text,
+        flags=re.IGNORECASE,
+    ))
+    return trusted_domain or trusted_text
+
+
+def _is_financial_source(domain: str, text: str, query: str) -> bool:
+    if _high_stakes_non_health_kind(query, require_intent=False) != "financial" or _is_weak_aggregator_domain(domain, text) or _is_forum_or_social_domain(domain):
+        return False
+    trusted_domain = _domain_matches_any(domain, [
+        "bundesfinanzministerium.de", "elster.de", "bafin.de", "bundesbank.de",
+        "deutsche-rentenversicherung.de", "verbraucherzentrale.de", "irs.gov",
+        "sec.gov", "consumerfinance.gov", "ecb.europa.eu", "europa.eu",
+    ]) or _is_government_domain(domain)
+    trusted_text = bool(re.search(
+        r"\b(offiziell|official|steuer|finanzamt|rente|versicherung|kredit|"
+        r"verbraucherzentrale|aufsicht|regulator|bafin|bundesbank|sec|irs|"
+        r"tax|retirement|loan|insurance|investor protection)\b",
+        text,
+        flags=re.IGNORECASE,
+    ))
+    return trusted_domain or trusted_text
+
+
+def _is_safety_source(domain: str, text: str, query: str) -> bool:
+    if _high_stakes_non_health_kind(query, require_intent=False) != "safety" or _is_weak_aggregator_domain(domain, text) or _is_forum_or_social_domain(domain):
+        return False
+    trusted_domain = _domain_matches_any(domain, [
+        "bfr.bund.de", "bvl.bund.de", "lebensmittelwarnung.de", "rki.de",
+        "produktsicherheit.bund.de", "cpsc.gov", "recalls.gov", "fda.gov",
+        "who.int", "echa.europa.eu", "osha.europa.eu", "dguv.de", "europa.eu",
+    ]) or _is_government_domain(domain)
+    trusted_text = bool(re.search(
+        r"\b(offiziell|official|warnung|rückruf|rueckruf|recall|produktsicherheit|"
+        r"lebensmittelsicherheit|sicherheitshinweis|notfall|emergency|safety|"
+        r"poison|chemical|carbon monoxide|kohlenmonoxid)\b",
+        text,
+        flags=re.IGNORECASE,
+    ))
+    return trusted_domain or trusted_text
+
+
 def _is_public_tech_product_source(domain: str, text: str, query: str) -> bool:
     if not _is_public_tech_product_query(query) or _is_weak_aggregator_domain(domain, text) or _is_forum_or_social_domain(domain):
         return False
@@ -2798,6 +2972,12 @@ def _source_profiles_for_result(domain: str, text: str, query: str) -> list[str]
         profiles.append("pricing")
     if _is_health_or_food_safety_source(domain, text, query):
         profiles.append("health-food-safety")
+    if _is_legal_source(domain, text, query):
+        profiles.append("legal-official")
+    if _is_financial_source(domain, text, query):
+        profiles.append("financial-official")
+    if _is_safety_source(domain, text, query):
+        profiles.append("safety-official")
     if _is_public_tech_product_source(domain, text, query):
         profiles.append("public-tech-product")
     if _is_standards_source(domain, text):
@@ -2924,6 +3104,15 @@ def _score_research_result(item: dict[str, Any], query: str, preferred_domains: 
     if "health-food-safety" in profiles:
         score += 18
         signals.append("health-food-safety-source")
+    if "legal-official" in profiles:
+        score += 18
+        signals.append("legal-official-source")
+    if "financial-official" in profiles:
+        score += 18
+        signals.append("financial-official-source")
+    if "safety-official" in profiles:
+        score += 18
+        signals.append("safety-official-source")
     if "public-tech-product" in profiles:
         score += 16
         signals.append("public-tech-product-source")
@@ -3054,11 +3243,27 @@ def _score_research_results(results: list[dict[str, Any]], query: str) -> dict[s
         for result in [*usable, *blocked]
         for warning in result["quality"].get("warnings", [])
     ))
+    high_stakes_profiles = {
+        "high-stakes-health",
+        "high-stakes-legal",
+        "high-stakes-financial",
+        "high-stakes-safety",
+    }
+    high_stakes_source_profiles = {
+        "health-food-safety",
+        "legal-official",
+        "financial-official",
+        "safety-official",
+    }
     if blocked:
         warnings.append(f"{len(blocked)} result(s) excluded by blocked-domain or invalid-source rules.")
     if not usable:
         warnings.append("No usable research sources passed quality scoring.")
         confidence = "low"
+    if set(query_profiles).intersection(high_stakes_profiles) and not set(source_profiles).intersection(high_stakes_source_profiles):
+        warnings.append("High-stakes query has weak or insufficient official source support.")
+        if confidence == "high":
+            confidence = "medium"
     if require_multiple and len(usable) < 2:
         warnings.append("Configuration requires multiple usable sources, but fewer than two passed quality scoring.")
         confidence = "low"
@@ -3768,6 +3973,18 @@ def _format_context(
             lines.append(
                 "Gesundheits-/Sicherheitsregel: Antworte vorsichtig und quellengebunden. Gib allgemeine Informationen, keine Diagnose und keinen individuellen medizinischen Rat. Bei Allergie-, Anaphylaxie- oder Kinderfragen auf ärztliche/allergologische Abklärung und Notfallplan verweisen, wenn passend."
             )
+        if "high-stakes-legal" in query_profile_set or "legal-official" in source_profile_set:
+            lines.append(
+                "Rechtsregel: Antworte nur allgemein und quellengebunden. Gib keine individuelle Rechtsberatung, keine verbindliche Frist- oder Erfolgseinschätzung und keine anwaltliche Strategie. Verweise bei konkreten Fällen auf qualifizierte Rechtsberatung, zuständige Behörden oder Verbraucherberatung."
+            )
+        if "high-stakes-financial" in query_profile_set or "financial-official" in source_profile_set:
+            lines.append(
+                "Finanzregel: Antworte nur allgemein und quellengebunden. Gib keine individuelle Steuer-, Anlage-, Kredit- oder Versicherungsberatung und keine Kauf-/Verkaufs-/Anlageempfehlung. Markiere Unsicherheit und verweise bei konkreten Entscheidungen auf offizielle Stellen oder qualifizierte Beratung."
+            )
+        if "high-stakes-safety" in query_profile_set or "safety-official" in source_profile_set:
+            lines.append(
+                "Sicherheitsregel: Antworte vorsichtig und handlungsarm. Bei akuter Gefahr wie Feuer, Gasgeruch, Kohlenmonoxid, Vergiftung, Stromschlag oder Explosion soll der Nutzer Abstand nehmen und lokale Notruf-/Fachstellen kontaktieren. Gib keine riskanten Reparatur-, Entschärfungs- oder Selbstversuchs-Anleitungen."
+            )
         if "public-tech-product" in query_profile_set or "public-tech-product" in source_profile_set:
             lines.append(
                 "Tech-/Produktregel: Beantworte Hardware-, Speicher-, Performance- und Popularitätsfragen nur mit Quellen, die zum aktuellen Tech-/Produkt-Thema passen. Übernimm keine Research-Guard-Quellen aus vorherigen Themen. Wenn Specs wie Unified Memory, VRAM, RAM oder Modellgröße nicht aus den Quellen hervorgehen, markiere Unsicherheit statt zu raten."
@@ -4218,6 +4435,13 @@ def pre_llm_research_guard(session_id: str, user_message: str, model: str, platf
     quality = _score_research_results(payload.get("results") or [], str(payload.get("query") or query)) if payload.get("success") else None
     fetched_sources = _fetch_top_sources(quality.get("results") if quality and deep_fetch else []) if deep_fetch else []
     min_confidence = _parse_confidence(os.getenv("RESEARCH_GUARD_MIN_CONFIDENCE"), "low")
+    if quality and set(quality.get("query_profiles") or []).intersection({
+        "high-stakes-health",
+        "high-stakes-legal",
+        "high-stakes-financial",
+        "high-stakes-safety",
+    }) and CONFIDENCE_RANK.get(min_confidence, 1) < CONFIDENCE_RANK["medium"]:
+        min_confidence = "medium"
     if quality and not _meets_min_confidence(str(quality.get("confidence") or "low"), min_confidence):
         _record_decision(
             "failed",
