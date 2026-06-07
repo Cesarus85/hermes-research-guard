@@ -1,6 +1,6 @@
 # Hermes Research Guard
 
-**Beta release:** `v0.8.0-beta.33`
+**Beta release:** `v0.8.0-beta.34`
 
 Hermes Research Guard is a lightweight pre-answer research plugin for the **Hermes Agent**. It runs a web search before Hermes lets a local or small model answer factual or current-information questions, ranks the sources, and injects a compact evidence block into the current Hermes prompt.
 
@@ -153,7 +153,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.33
+version: 0.8.0-beta.34
 ```
 
 ### Option 2: Manual Command-Line Install
@@ -190,7 +190,7 @@ grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
 Expected:
 
 ```text
-version: 0.8.0-beta.33
+version: 0.8.0-beta.34
 ```
 
 If you manage plugins manually, make sure `~/.hermes/config.yaml` contains:
@@ -567,6 +567,8 @@ Name concrete pros and cons.
 
 can reuse the previous researched subject across domains. For example, after a Python version question, `Welche Alternativen gibt es?` is searched with `Python` carried into the query; after a ChatGPT Team pricing question, `Nenn mir konkrete Vorteile und Nachteile` is searched with `ChatGPT Team` carried into the query. Rabbit/hare prompts also have an additional specialized rewrite and demote dog or family-dog search results as off-topic.
 
+When Hermes does not pass conversation history into the hook, Research Guard can still use the last Research Guard decision as a fallback subject for clear follow-ups. For example, after `Wo liegt Forchheim?`, a follow-up such as `und wieviele Einwohner hat die Stadt?` is rewritten toward `Forchheim Einwohner Einwohnerzahl Bevölkerung Statistik offizielle Stadt` and supplemented with official city/statistics searches.
+
 ## Public Factual Topic Shifts
 
 Research Guard also recognizes new standalone public factual questions after an unrelated researched turn. This is deliberately broader than tech: it can cover public topics such as products, films, music, politics, places, companies, science, food, sports, and similar named or domain-specific subjects.
@@ -701,7 +703,7 @@ Run tests:
 python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-Current beta test count: `96`.
+Current beta test count: `98`.
 
 ## Roadmap
 

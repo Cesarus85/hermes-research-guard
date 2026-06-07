@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.33"
+__version__ = "0.8.0-beta.34"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -699,6 +699,7 @@ def _rewrite_search_query(query: str) -> tuple[str, str]:
 def _is_subject_followup(message: str) -> bool:
     pronoun_followup = bool(re.search(
         r"\b(es|sie|er|ihn|ihm|dort|da|dazu|davon|darüber|darueber|hierzu|damit|danach|später|spaeter|"
+        r"die\s+stadt|der\s+ort|die\s+gemeinde|the\s+city|the\s+town|"
         r"it|there|this|that|about\s+(?:it|that|this))\b",
         message,
         flags=re.IGNORECASE,
@@ -1015,7 +1016,24 @@ def _extract_subject_from_text(text: str) -> str | None:
 
 
 def _extract_prior_subject(messages: list[Any] | None, prompt: str) -> str | None:
-    if not messages or not _is_subject_followup(prompt):
+    if not _is_subject_followup(prompt):
+        return None
+    if not messages:
+        decision = _last_research_decision()
+        if not decision:
+            return None
+        query_debug = decision.get("query_debug") if isinstance(decision.get("query_debug"), dict) else {}
+        candidates = [
+            str(query_debug.get("cleaned_prompt") or ""),
+            str(query_debug.get("base_query") or ""),
+            str(decision.get("query") or ""),
+        ]
+        for text in candidates:
+            if not text or text.strip() == prompt.strip():
+                continue
+            subject = _extract_subject_from_text(text)
+            if subject:
+                return subject
         return None
     candidates = list(reversed(messages))
     for message in candidates:
@@ -2585,6 +2603,10 @@ def _is_municipal_office_query(query: str) -> bool:
     return bool(re.search(r"\b(bürgermeister|oberbürgermeister|bürgermeisterin|oberbürgermeisterin|mayor|landrat|landrätin)\b", query or "", flags=re.IGNORECASE))
 
 
+def _is_municipal_population_query(query: str) -> bool:
+    return bool(re.search(r"\b(einwohner|einwohnerzahl|bevölkerung|population|inhabitants|residents)\b", query or "", flags=re.IGNORECASE))
+
+
 def _municipal_office_supplemental_queries(query: str) -> list[str]:
     if not _is_municipal_office_query(query):
         return []
@@ -2601,6 +2623,19 @@ def _municipal_office_supplemental_queries(query: str) -> list[str]:
             f"{subject} Oberbürgermeisterin Oberbürgermeister Bürgermeisterin Bürgermeister Stadtspitze Amtsinhaber seit aktuell offizielle Stadt"
         ),
         _dedupe_query_terms(f"{subject} Oberbürgermeisterin Bürgermeister Stadtspitze"),
+    ]
+
+
+def _municipal_population_supplemental_queries(query: str) -> list[str]:
+    if not _is_municipal_population_query(query):
+        return []
+    subject = _extract_local_fact_subject(query)
+    if not subject:
+        return []
+    return [
+        _dedupe_query_terms(f"{subject} Einwohnerzahl Bevölkerung Statistik offizielle Stadt"),
+        _dedupe_query_terms(f"{subject} Stadtportrait Einwohner offizielle Stadt"),
+        _dedupe_query_terms(f"{subject} Landesamt Statistik Einwohnerzahl Gemeinde"),
     ]
 
 
@@ -3861,6 +3896,18 @@ def _search(query: str, limit: int, deep_profile: str = "off") -> dict[str, Any]
                         supplemental = _run_provider_with_timeout(provider, supplemental_query, max(limit, 8))
                     except Exception as exc:
                         errors.append(f"{slug} supplemental municipal-office: {exc}")
+                        continue
+                    if supplemental:
+                        supplemental_queries.append(supplemental_query)
+                        results = _merge_supplemental_results(results, supplemental)
+            if _is_municipal_population_query(query):
+                for supplemental_query in _municipal_population_supplemental_queries(query):
+                    if supplemental_query.lower() == query.strip().lower() or supplemental_query in supplemental_queries:
+                        continue
+                    try:
+                        supplemental = _run_provider_with_timeout(provider, supplemental_query, max(limit, 8))
+                    except Exception as exc:
+                        errors.append(f"{slug} supplemental municipal-population: {exc}")
                         continue
                     if supplemental:
                         supplemental_queries.append(supplemental_query)

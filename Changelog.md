@@ -1,3 +1,11 @@
+## 2026-06-07 - Einwohner-Follow-ups tragen letztes Stadtthema weiter
+- **Typ:** fix
+- **Problem:** Nach `Wo liegt Forchheim?` konnte eine Folgefrage wie `und wieviele Einwohner hat die Stadt?` ohne Hermes-History zu generisch recherchiert werden und Quellen zu allgemeinen Bevölkerungsstatistiken oder anderen Städten liefern.
+- **Änderung:** Subject-Follow-ups erkennen jetzt `die Stadt`/`der Ort`/`die Gemeinde`; wenn Hermes keine History liefert, wird das Thema aus dem letzten Research-Guard-Decision-Buffer getragen.
+- **Suche:** Kommunale Einwohnerfragen mischen gezielte Supplemental-Queries zu offizieller Stadtseite, Stadtportrait und Landesstatistik bei.
+- **Version:** Plugin version raised to `0.8.0-beta.34`.
+- **Tests:** Test-Suite jetzt 98 Tests.
+
 ## 2026-06-07 - High-Stakes Legal/Financial/Safety ergänzt
 - **Typ:** feature
 - **Problem:** Bisher gab es nur High-Stakes-Health-/Food-Allergen-Erkennung; Legal-, Financial- und breite Safety-Fragen waren in README/Roadmap noch offen.

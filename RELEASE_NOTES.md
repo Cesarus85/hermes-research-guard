@@ -1,5 +1,35 @@
 # Release Notes
 
+## v0.8.0-beta.34
+
+This beta improves municipal factual follow-ups such as asking for a city's population after asking where the city is located.
+
+### Fixed
+
+- Subject follow-ups such as `und wieviele Einwohner hat die Stadt?` now recognize city/town wording as a follow-up subject reference.
+- When Hermes does not pass conversation history into the hook, Research Guard can carry the subject from the last Research Guard decision buffer.
+- Municipal population queries now run targeted supplemental searches for official city, city portrait, and state-statistics pages.
+- This reduces generic population-source drift such as returning broad Destatis pages or unrelated city-statistics pages for a Forchheim follow-up.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.34
+```
+
+Expected tests:
+
+```text
+Ran 98 tests
+```
+
 ## v0.8.0-beta.33
 
 This beta adds high-stakes legal, financial, and broad safety handling on top of the existing health/food-allergen mode.

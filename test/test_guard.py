@@ -173,6 +173,28 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
             "contextual-factual-followup",
         )
 
+    def test_followup_subject_carryover_uses_last_decision_when_history_is_missing(self):
+        guard.DECISIONS.clear()
+        try:
+            guard._record_decision(
+                "injected",
+                "public-factual-topic",
+                query="Wo liegt Forchheim reliable sources official facts",
+                query_debug={
+                    "cleaned_prompt": "Wo liegt Forchheim?",
+                    "base_query": "Wo liegt Forchheim?",
+                    "final_query": "Wo liegt Forchheim reliable sources official facts",
+                },
+            )
+
+            self.assertTrue(guard._is_subject_followup("und wieviele Einwohner hat die Stadt?"))
+            self.assertEqual(
+                guard._build_search_query("und wieviele Einwohner hat die Stadt?"),
+                "Forchheim Einwohner Einwohnerzahl Bevölkerung Statistik offizielle Stadt",
+            )
+        finally:
+            guard.DECISIONS.clear()
+
     def test_followup_subject_carryover_supports_content_parts(self):
         messages = [
             {"role": "user", "content": [{"type": "text", "text": "Wer ist Martina Hebendanz?"}]},
@@ -1233,6 +1255,52 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertGreaterEqual(len(calls), 2)
         self.assertIn("supplemental_queries", payload)
         self.assertIn("Martina Hebendanz", quality["results"][0]["title"])
+
+    def test_municipal_population_search_adds_official_supplemental_queries(self):
+        original_load = guard._load_cache
+        original_save = guard._save_cache
+        original_order = guard._provider_order
+        original_run = guard._run_provider
+        calls = []
+        try:
+            guard._load_cache = lambda: {}
+            guard._save_cache = lambda cache: None
+            guard._provider_order = lambda: ["brave"]
+
+            def fake_run(provider, query, limit):
+                calls.append(query)
+                if "Stadtportrait" in query:
+                    return [
+                        {
+                            "title": "Stadtportrait Forchheim",
+                            "url": "https://www.forchheim.de/leben-wohnen/stadtinformationen/stadtportrait-forchheim",
+                            "snippet": "Offizielle Stadtinformationen mit Einwohnerzahl und Statistik zur Stadt Forchheim.",
+                            "age": "2026-05-01",
+                        }
+                    ]
+                return [
+                    {
+                        "title": "Allgemeine Bevölkerungsstatistik",
+                        "url": "https://www.destatis.de/DE/Themen/Gesellschaft-Umwelt/Bevoelkerung/Bevoelkerungsstand/_inhalt.html",
+                        "snippet": "Allgemeine Statistiken zur Bevölkerung.",
+                        "age": "2026-05-01",
+                    }
+                ]
+
+            guard._run_provider = fake_run
+            query = guard._build_search_query("Wie viele Einwohner hat Forchheim?")
+            payload = guard._search(query, 5)
+            quality = guard._score_research_results(payload["results"], payload["query"])
+        finally:
+            guard._load_cache = original_load
+            guard._save_cache = original_save
+            guard._provider_order = original_order
+            guard._run_provider = original_run
+
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertIn("supplemental_queries", payload)
+        self.assertTrue(any("Stadtportrait" in query for query in payload["supplemental_queries"]))
+        self.assertIn("forchheim.de", quality["results"][0]["url"])
 
     def test_provider_order_honors_configuration_and_optional_providers(self):
         old_provider = os.environ.get("RESEARCH_GUARD_PROVIDER")
