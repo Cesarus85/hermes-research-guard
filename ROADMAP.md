@@ -220,8 +220,8 @@ Goal: make future changes safe.
 - [x] Add tests for source scoring and confidence gates.
 - [x] Add tests for duplicate/same-domain dampening.
 - [x] Add tests for status v2 diagnostics, prompt redaction, and query debug.
-- [ ] PORT Add fuller tests for freshness/staleness scoring.
-- [ ] PORT Add tests for provider normalization.
+- [x] PORT Add fuller tests for freshness/staleness scoring.
+- [x] PORT Add tests for provider normalization.
 - [ ] ADAPT Add integration smoke test for Hermes `pre_llm_call` context injection if a stable test harness exists.
 - [x] ADAPT Add GitHub Actions lint/test workflow once the project has a test runner.
 

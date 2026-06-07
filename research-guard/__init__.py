@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.8.0-beta.31"
+__version__ = "0.8.0-beta.32"
 CACHE_PATH = Path.home() / ".hermes" / "cache" / "research-guard-cache.json"
 CONFIG_PATH = Path.home() / ".hermes" / "research-guard.json"
 PLUGIN_CONFIG_PATH = Path(__file__).resolve().with_name("config.json")
@@ -3406,9 +3406,20 @@ def _normalize_search_result(item: Any) -> dict[str, str] | None:
         or item.get("name")
         or item.get("headline")
         or item.get("displayTitle")
+        or item.get("display_title")
         or "Untitled"
     )
-    url = item.get("url") or item.get("link") or item.get("href") or item.get("uri") or ""
+    url = (
+        item.get("url")
+        or item.get("link")
+        or item.get("href")
+        or item.get("uri")
+        or item.get("source_url")
+        or item.get("sourceUrl")
+        or item.get("canonical_url")
+        or item.get("canonicalUrl")
+        or ""
+    )
     snippet = (
         item.get("snippet")
         or item.get("description")
@@ -3416,9 +3427,25 @@ def _normalize_search_result(item: Any) -> dict[str, str] | None:
         or item.get("summary")
         or item.get("content")
         or item.get("text")
+        or item.get("body")
+        or item.get("excerpt")
+        or item.get("abstract")
         or ""
     )
-    age = item.get("age") or item.get("published") or item.get("published_at") or item.get("date") or item.get("updated") or ""
+    age = (
+        item.get("age")
+        or item.get("published")
+        or item.get("published_at")
+        or item.get("publishedAt")
+        or item.get("publishedDate")
+        or item.get("datePublished")
+        or item.get("date")
+        or item.get("updated")
+        or item.get("updated_at")
+        or item.get("updatedAt")
+        or item.get("lastUpdated")
+        or ""
+    )
     url = str(url).strip()
     if not url:
         return None
@@ -3458,15 +3485,19 @@ def _extract_web_results(data: Any, limit: int) -> list[dict[str, str]]:
     data = _parse_jsonish(data)
     if isinstance(data, dict):
         if isinstance(data.get("data"), dict):
-            nested = data["data"]
-            for key in ("web", "results", "items"):
-                results = _normalize_search_results(nested.get(key), limit)
-                if results:
-                    return results
-        for key in ("web", "results", "items"):
-            results = _normalize_search_results(data.get(key), limit)
+            results = _extract_web_results(data["data"], limit)
             if results:
                 return results
+        for key in ("web", "results", "items"):
+            value = data.get(key)
+            if isinstance(value, dict):
+                results = _extract_web_results(value, limit)
+                if results:
+                    return results
+            else:
+                results = _normalize_search_results(value, limit)
+                if results:
+                    return results
         if isinstance(data.get("result"), dict):
             results = _extract_web_results(data["result"], limit)
             if results:

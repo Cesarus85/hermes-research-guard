@@ -1,5 +1,35 @@
 # Release Notes
 
+## v0.8.0-beta.32
+
+This beta hardens provider result normalization and freshness/staleness scoring coverage.
+
+### Improved
+
+- Provider result normalization now accepts additional common aliases such as `display_title`, `sourceUrl`, `canonicalUrl`, `body`, `excerpt`, `abstract`, `publishedAt`, and `datePublished`.
+- Nested provider payloads such as `data.web.results` are now recursively extracted instead of being ignored.
+- Current-information scoring has fuller tests for fresh, stale, and undated sources.
+- Route wording hardening and the GitHub Actions unit-test workflow from the previous hardening commit are included in this beta.
+
+### Verification
+
+```bash
+grep '^version:' ~/.hermes/plugins/research-guard/plugin.yaml
+python3 -m unittest discover -s test -p 'test_*.py'
+```
+
+Expected plugin version:
+
+```text
+version: 0.8.0-beta.32
+```
+
+Expected tests:
+
+```text
+Ran 93 tests
+```
+
 ## v0.8.0-beta.31
 
 This beta tightens the local chat/meta boundary for conversation corrections and Research Guard meta questions.

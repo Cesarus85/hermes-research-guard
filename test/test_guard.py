@@ -736,6 +736,49 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertIn("municipal-local", quality["query_profiles"])
         self.assertIn("municipal", quality["source_profiles"])
 
+    def test_freshness_scoring_marks_fresh_stale_and_undated_current_sources(self):
+        today = guard.datetime.now(guard.timezone.utc).strftime("%Y-%m-%d")
+        fresh = guard._score_research_result(
+            {
+                "title": "Official latest release",
+                "url": "https://example.com/releases/latest",
+                "snippet": "Official release notes.",
+                "age": today,
+            },
+            "latest ExampleApp release",
+            [],
+            [],
+        )
+        stale = guard._score_research_result(
+            {
+                "title": "Old latest release",
+                "url": "https://example.com/releases/old",
+                "snippet": "Official release notes from 2020-01-01.",
+                "age": "2020-01-01",
+            },
+            "latest ExampleApp release",
+            [],
+            [],
+        )
+        undated = guard._score_research_result(
+            {
+                "title": "Undated latest release",
+                "url": "https://example.com/releases",
+                "snippet": "Official release notes without a visible date.",
+            },
+            "latest ExampleApp release",
+            [],
+            [],
+        )
+
+        self.assertIn("fresh-source", fresh["signals"])
+        self.assertNotIn("Possibly stale source for current-information query.", fresh["warnings"])
+        self.assertIn("Possibly stale source for current-information query.", stale["warnings"])
+        self.assertNotIn("fresh-source", stale["signals"])
+        self.assertIn("Undated source for current-information query.", undated["warnings"])
+        self.assertGreater(fresh["score"], stale["score"])
+        self.assertGreater(fresh["score"], undated["score"])
+
     def test_disambiguates_primary_office_from_deputy_mayor_results(self):
         quality = guard._score_research_results(
             [
@@ -1143,6 +1186,59 @@ class ResearchGuardHeuristicTests(unittest.TestCase):
         self.assertEqual(results[0]["url"], "https://example.com")
         self.assertEqual(results[0]["snippet"], "Example snippet")
         self.assertEqual(results[0]["age"], "2026-05-13")
+
+    def test_search_result_normalization_recurses_nested_provider_containers(self):
+        results = guard._extract_web_results(
+            {
+                "data": {
+                    "web": {
+                        "results": [
+                            {
+                                "display_title": "Nested <b>Provider</b>",
+                                "sourceUrl": "https://nested.example/result",
+                                "body": "Nested <em>body</em> text.",
+                                "publishedAt": "2026-06-01",
+                            }
+                        ]
+                    }
+                }
+            },
+            5,
+        )
+
+        self.assertEqual(results, [
+            {
+                "title": "Nested Provider",
+                "url": "https://nested.example/result",
+                "snippet": "Nested body text.",
+                "age": "2026-06-01",
+            }
+        ])
+
+    def test_search_result_normalization_supports_additional_aliases_and_limits(self):
+        results = guard._normalize_search_results(
+            [
+                {
+                    "headline": "Alias Result",
+                    "canonicalUrl": "https://alias.example/article",
+                    "excerpt": "Alias excerpt.",
+                    "datePublished": "2026-06-02",
+                },
+                {"title": "Missing URL", "snippet": "Ignored"},
+                {
+                    "title": "Over limit",
+                    "url": "https://alias.example/second",
+                    "abstract": "Should not be returned when limit is one.",
+                },
+            ],
+            1,
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["title"], "Alias Result")
+        self.assertEqual(results[0]["url"], "https://alias.example/article")
+        self.assertEqual(results[0]["snippet"], "Alias excerpt.")
+        self.assertEqual(results[0]["age"], "2026-06-02")
 
     def test_injected_context_includes_quality_and_location_discipline(self):
         quality = guard._score_research_results(

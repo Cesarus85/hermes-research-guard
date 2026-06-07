@@ -1,3 +1,11 @@
+## 2026-06-07 - Provider-Normalisierung und Freshness-Tests erweitert
+- **Typ:** hardening
+- **Problem:** Einige realistische Provider-Payloads mit verschachtelten Ergebniscontainern oder alternativen Feldnamen wie `body`, `excerpt`, `sourceUrl` oder `publishedAt` waren nicht explizit abgesichert.
+- **Änderung:** `_extract_web_results` rekursiert jetzt durch verschachtelte Provider-Container; `_normalize_search_result` akzeptiert zusätzliche Titel-, URL-, Snippet- und Datums-Aliase.
+- **Freshness:** Tests decken frische, veraltete und undatierte Quellen für aktuelle Release-/Versionsfragen ab.
+- **Version:** Plugin version raised to `0.8.0-beta.32`.
+- **Tests:** Test-Suite jetzt 93 Tests.
+
 ## 2026-06-07 - Route-Wording und CI gehärtet
 - **Typ:** hardening
 - **Problem:** Die Route-Guardrails enthielten mit `stärker belegter Kandidat` eine missverständliche Formulierung; außerdem gab es noch keinen GitHub-Actions-Testlauf für die vorhandene dependency-freie Testsuite.
